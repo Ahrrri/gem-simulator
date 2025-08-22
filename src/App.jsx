@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import './App.css';
 import { fuseGems, calculateStatistics, getFusionProbabilities, GEM_TYPES } from './utils/gemFusion';
-import { processGem, executeGemProcessing, createProcessingGem, rerollProcessingOptions, getAllOptionsStatus, bulkProcessingSimulation, calculateProcessingStatistics } from './utils/gemProcessing';
+import { processGem, executeGemProcessing, createProcessingGem, rerollProcessingOptions, getAllOptionsStatus, bulkProcessingSimulation, calculateProcessingStatistics, calculateAttemptWiseOptionStats, PROCESSING_STRATEGIES } from './utils/gemProcessing';
 
 function App() {
   const [materials, setMaterials] = useState([
@@ -58,6 +58,8 @@ function App() {
   const [selectedSimulationGemType, setSelectedSimulationGemType] = useState('ORDER_STABLE');
   const [selectedSimulationGrade, setSelectedSimulationGrade] = useState('RARE');
   const [selectedProcessingCombo, setSelectedProcessingCombo] = useState(null);
+  const [selectedStrategy, setSelectedStrategy] = useState('NO_REROLL');
+  const [strategyThreshold, setStrategyThreshold] = useState(0);
 
   // 재료 젬 업데이트
   const updateMaterial = (index, field, value) => {
@@ -120,6 +122,14 @@ function App() {
 
   // 가공 시뮬레이션 실행
   const executeProcessingSimulation = async () => {
+    // 이전 결과 먼저 클리어 (메모리 해제)
+    setProcessingSimulationResults([]);
+    setProcessingStatistics(null);
+    setSelectedProcessingCombo(null);
+    
+    // 가비지 컬렉션을 위한 짧은 대기
+    await new Promise(resolve => setTimeout(resolve, 50));
+    
     setIsProcessingSimulating(true);
     setProcessingProgress(0);
     
@@ -127,13 +137,33 @@ function App() {
     // 더 작은 배치 크기로 더 자주 업데이트
     const batchSize = Math.min(250, Math.max(50, Math.floor(processingSimulationCount / 50)));
     
-    const allResults = [];
+    // 선택된 전략과 파라미터 준비
+    const strategy = PROCESSING_STRATEGIES[selectedStrategy];
+    const strategyParams = selectedStrategy === 'THRESHOLD_REROLL' ? 
+      { threshold: strategyThreshold } : {};
+    
+    // 결과를 청크로 나누어 처리 (메모리 효율성)
+    let allResults = [];
     
     for (let i = 0; i < processingSimulationCount; i += batchSize) {
       const currentBatchSize = Math.min(batchSize, processingSimulationCount - i);
-      const batchResults = bulkProcessingSimulation(mainType, subType, selectedSimulationGrade, currentBatchSize);
+      // 옵션 추적과 전략을 활성화하여 시뮬레이션 실행
+      const batchResults = bulkProcessingSimulation(
+        mainType, subType, selectedSimulationGrade, currentBatchSize, 
+        true, strategy, strategyParams
+      );
       
       allResults.push(...batchResults);
+      
+      // 메모리 관리: history 데이터만 제거 (통계에 필요 없음)
+      if (allResults.length > 10000) {
+        // 최근 10000개를 제외한 나머지의 history 제거
+        for (let j = 0; j < allResults.length - 10000; j++) {
+          if (allResults[j].history) {
+            allResults[j].history = null; // history만 제거
+          }
+        }
+      }
       
       const progressPercent = ((i + currentBatchSize) / processingSimulationCount) * 100;
       setProcessingProgress(progressPercent);
@@ -196,9 +226,8 @@ function App() {
     const filtered = processingSimulationResults
       .filter(result => result.finalGem.willpower === targetW && result.finalGem.corePoint === targetC);
     
-    // 랜덤으로 최대 5개 선택
-    const shuffled = [...filtered].sort(() => Math.random() - 0.5);
-    return shuffled.slice(0, 5).map(result => result.finalGem);
+    // 처음 5개 선택 (랜덤 제거)
+    return filtered.slice(0, 5).map(result => result.finalGem);
   };
 
   // 가공 조합 클릭 핸들러
@@ -594,6 +623,39 @@ function App() {
                               disabled={isProcessingSimulating}
                             />
                           </div>
+                          
+                          <div className="sim-setting">
+                            <label>전략:</label>
+                            <select
+                              value={selectedStrategy}
+                              onChange={(e) => setSelectedStrategy(e.target.value)}
+                              disabled={isProcessingSimulating}
+                            >
+                              {Object.entries(PROCESSING_STRATEGIES).map(([key, strategy]) => (
+                                <option key={key} value={key}>
+                                  {strategy.name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          
+                          {selectedStrategy === 'THRESHOLD_REROLL' && (
+                            <div className="sim-setting">
+                              <label>임계값:</label>
+                              <input
+                                type="number"
+                                value={strategyThreshold}
+                                onChange={(e) => setStrategyThreshold(Number(e.target.value))}
+                                min="-5"
+                                max="5"
+                                step="0.5"
+                                disabled={isProcessingSimulating}
+                              />
+                              <span className="threshold-hint">
+                                (평균 값 ≤ {strategyThreshold}일 때 리롤)
+                              </span>
+                            </div>
+                          )}
                         </div>
                         
                         <div className="simulation-buttons">
@@ -650,11 +712,166 @@ function App() {
                 <div className="stats-compact">
                   <div className="stat-row">
                     <span>총 시도: <strong>{processingStatistics.totalRuns.toLocaleString()}</strong></span>
-                    <span>평균 포인트: <strong>{processingStatistics.averageTotalPoints.toFixed(1)}pt</strong></span>
-                    <span>평균 가공 횟수: <strong>{processingStatistics.averageProcessingSteps.toFixed(1)}회</strong></span>
-                    <span>전설: <strong>{(processingStatistics.gradeDistribution.LEGENDARY / processingStatistics.totalRuns * 100).toFixed(1)}%</strong></span>
-                    <span>유물: <strong>{(processingStatistics.gradeDistribution.RELIC / processingStatistics.totalRuns * 100).toFixed(1)}%</strong></span>
-                    <span>고대: <strong>{(processingStatistics.gradeDistribution.ANCIENT / processingStatistics.totalRuns * 100).toFixed(1)}%</strong></span>
+                    <span>평균 포인트: <strong>{processingStatistics.averageTotalPoints.toFixed(3)}pt</strong></span>
+                    <span>평균 가공 횟수: <strong>{processingStatistics.averageProcessingSteps.toFixed(3)}회</strong></span>
+                    <span>조기 종료: <strong>{processingStatistics.earlyTerminationRate ? processingStatistics.earlyTerminationRate.toFixed(2) : '0.00'}%</strong></span>
+                  </div>
+                  <div className="stat-row">
+                    <span>평균 리롤 사용: <strong>{processingStatistics.averageRerollsUsed.toFixed(3)}회</strong></span>
+                    <span>리롤 못함: <strong>{processingStatistics.averageRerollsWanted ? processingStatistics.averageRerollsWanted.toFixed(3) : '0.000'}회</strong></span>
+                    <span>남은 리롤: <strong>{processingStatistics.averageRemainingRerolls ? processingStatistics.averageRemainingRerolls.toFixed(3) : '0.000'}회</strong></span>
+                  </div>
+                  <div className="stat-row">
+                    <span>평균 의지력: <strong>{processingStatistics.averageWillpower ? processingStatistics.averageWillpower.toFixed(3) : '0.000'}</strong></span>
+                    <span>평균 코어포인트: <strong>{processingStatistics.averageCorePoint ? processingStatistics.averageCorePoint.toFixed(3) : '0.000'}</strong></span>
+                    <span>의지력-코어포인트: <strong>{processingStatistics.averageWillpower && processingStatistics.averageCorePoint ? (processingStatistics.averageWillpower - processingStatistics.averageCorePoint).toFixed(3) : '0.000'}</strong></span>
+                  </div>
+                  <div className="stat-row">
+                    <span>전설: <strong>{(processingStatistics.gradeDistribution.LEGENDARY / processingStatistics.totalRuns * 100).toFixed(2)}%</strong></span>
+                    <span>유물: <strong>{(processingStatistics.gradeDistribution.RELIC / processingStatistics.totalRuns * 100).toFixed(2)}%</strong></span>
+                    <span>고대: <strong>{(processingStatistics.gradeDistribution.ANCIENT / processingStatistics.totalRuns * 100).toFixed(2)}%</strong></span>
+                  </div>
+                </div>
+
+                {/* 옵션 등장 빈도 통계 */}
+                {processingStatistics.optionAppearanceFrequency && Object.keys(processingStatistics.optionAppearanceFrequency).length > 0 && (
+                  <div className="option-frequency-section">
+                    <h3>📊 옵션 등장 빈도</h3>
+                    <p className="stats-description">4개 선택지에 각 옵션이 등장한 총 횟수</p>
+                    <div className="option-frequency-grid">
+                      {(() => {
+                        const totalAppearances = Object.values(processingStatistics.optionAppearanceFrequency).reduce((a, b) => a + b, 0);
+                        const sortedOptions = Object.entries(processingStatistics.optionAppearanceFrequency)
+                          .sort((a, b) => b[1] - a[1]);
+                        
+                        // 카테고리별로 옵션 분류
+                        const willpowerOptions = sortedOptions.filter(([key]) => key.startsWith('willpower_'));
+                        const corePointOptions = sortedOptions.filter(([key]) => key.startsWith('corePoint_'));
+                        const effect1Options = sortedOptions.filter(([key]) => key.startsWith('effect1_'));
+                        const effect2Options = sortedOptions.filter(([key]) => key.startsWith('effect2_'));
+                        const otherOptions = sortedOptions.filter(([key]) => 
+                          !key.startsWith('willpower_') && 
+                          !key.startsWith('corePoint_') && 
+                          !key.startsWith('effect1_') && 
+                          !key.startsWith('effect2_')
+                        );
+                        
+                        return (
+                          <>
+                            <div className="frequency-comparison">
+                              <div className="frequency-category">
+                                <h4>의지력 효율</h4>
+                                {willpowerOptions.map(([option, count]) => (
+                                  <div key={option} className="frequency-item">
+                                    <span className="option-name">{option.replace('willpower_', '')}</span>
+                                    <span className="option-count">{count.toLocaleString()}</span>
+                                    <span className="option-percent">{((count / totalAppearances) * 100).toFixed(2)}%</span>
+                                  </div>
+                                ))}
+                                <div className="category-total">
+                                  총: {willpowerOptions.reduce((sum, [, count]) => sum + count, 0).toLocaleString()} 
+                                  ({((willpowerOptions.reduce((sum, [, count]) => sum + count, 0) / totalAppearances) * 100).toFixed(2)}%)
+                                </div>
+                              </div>
+                              <div className="frequency-category">
+                                <h4>코어포인트</h4>
+                                {corePointOptions.map(([option, count]) => (
+                                  <div key={option} className="frequency-item">
+                                    <span className="option-name">{option.replace('corePoint_', '')}</span>
+                                    <span className="option-count">{count.toLocaleString()}</span>
+                                    <span className="option-percent">{((count / totalAppearances) * 100).toFixed(2)}%</span>
+                                  </div>
+                                ))}
+                                <div className="category-total">
+                                  총: {corePointOptions.reduce((sum, [, count]) => sum + count, 0).toLocaleString()} 
+                                  ({((corePointOptions.reduce((sum, [, count]) => sum + count, 0) / totalAppearances) * 100).toFixed(2)}%)
+                                </div>
+                              </div>
+                              <div className="frequency-category">
+                                <h4>첫번째 효과</h4>
+                                {effect1Options.map(([option, count]) => (
+                                  <div key={option} className="frequency-item">
+                                    <span className="option-name">{option.replace('effect1_', '')}</span>
+                                    <span className="option-count">{count.toLocaleString()}</span>
+                                    <span className="option-percent">{((count / totalAppearances) * 100).toFixed(2)}%</span>
+                                  </div>
+                                ))}
+                                <div className="category-total">
+                                  총: {effect1Options.reduce((sum, [, count]) => sum + count, 0).toLocaleString()} 
+                                  ({((effect1Options.reduce((sum, [, count]) => sum + count, 0) / totalAppearances) * 100).toFixed(2)}%)
+                                </div>
+                              </div>
+                              <div className="frequency-category">
+                                <h4>두번째 효과</h4>
+                                {effect2Options.map(([option, count]) => (
+                                  <div key={option} className="frequency-item">
+                                    <span className="option-name">{option.replace('effect2_', '')}</span>
+                                    <span className="option-count">{count.toLocaleString()}</span>
+                                    <span className="option-percent">{((count / totalAppearances) * 100).toFixed(2)}%</span>
+                                  </div>
+                                ))}
+                                <div className="category-total">
+                                  총: {effect2Options.reduce((sum, [, count]) => sum + count, 0).toLocaleString()} 
+                                  ({((effect2Options.reduce((sum, [, count]) => sum + count, 0) / totalAppearances) * 100).toFixed(2)}%)
+                                </div>
+                              </div>
+                            </div>
+                            <div className="frequency-other">
+                              <h4>기타 옵션</h4>
+                              <div className="other-options-grid">
+                                {otherOptions.map(([option, count]) => (
+                                  <div key={option} className="frequency-item-inline">
+                                    <span className="option-name">{option.replace(/_/g, ' ')}</span>
+                                    <span className="option-count">{count.toLocaleString()}</span>
+                                    <span className="option-percent">({((count / totalAppearances) * 100).toFixed(2)}%)</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                            <div className="frequency-summary">
+                              <div className="summary-item">
+                                <span>전체 옵션 등장 횟수:</span>
+                                <strong>{totalAppearances.toLocaleString()}</strong>
+                              </div>
+                              <div className="summary-item">
+                                <span>평균 가공당 옵션:</span>
+                                <strong>{(totalAppearances / processingStatistics.totalRuns / processingStatistics.averageProcessingSteps).toFixed(2)}</strong>
+                              </div>
+                            </div>
+                          </>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                )}
+
+                {/* 차수별 옵션 값 통계 */}
+                <div className="attempt-stats-section">
+                  <h3>🎯 차수별 옵션 값 분석</h3>
+                  <p className="stats-description">각 가공 차수에서 제공되는 포인트 변화 옵션들의 평균 값</p>
+                  <div className="attempt-stats-grid">
+                    {(() => {
+                      const attemptStats = calculateAttemptWiseOptionStats(processingSimulationResults);
+                      if (!attemptStats || attemptStats.length === 0) return <div>통계 데이터 없음</div>;
+                      
+                      return attemptStats.map(stat => (
+                        <div key={stat.attempt} className="attempt-stat-item">
+                          <div className="attempt-number">{stat.attempt}차</div>
+                          <div className={`attempt-avg-value ${stat.avgOptionValue < 0 ? 'negative' : stat.avgOptionValue > 2 ? 'positive' : ''}`}>
+                            평균: {stat.avgOptionValue.toFixed(2)}
+                          </div>
+                          <div className="attempt-stdev">
+                            σ: {stat.stdev.toFixed(2)}
+                          </div>
+                          <div className="attempt-reroll">
+                            리롤: {stat.rerollRate.toFixed(3)}%
+                          </div>
+                        </div>
+                      ));
+                    })()}
+                  </div>
+                  <div className="stats-insight">
+                    💡 음수 값이 나타나는 차수에서 "다른 항목 보기"를 고려해볼 수 있습니다. 리롤 비율은 해당 차수에서 전략이 실제로 리롤을 사용한 비율입니다.
                   </div>
                 </div>
 
@@ -680,7 +897,7 @@ function App() {
                           const percentage = (count / processingStatistics.totalRuns * 100);
                           const [w, c] = combo.split('/').map(Number);
                           const isPerfect = w === 5 && c === 5;
-                          const isGood = w >= 4 && c >= 4;
+                          const isGood = w + c >= 8;
                           return (
                             <div 
                               key={combo} 

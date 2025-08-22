@@ -324,7 +324,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 1rem;
-  justify-content: center;
+  justify-content: flex-start;
   font-size: 0.85rem;
 }
 
@@ -917,7 +917,6 @@
 
 .stat-row {
   display: flex;
-  justify-content: space-between;
   align-items: center;
   padding: 0.5rem;
   background: rgba(255, 255, 255, 0.8);
@@ -1466,4 +1465,211 @@
   .simulation-buttons {
     flex-direction: column;
   }
+}
+
+/* 차수별 옵션 값 통계 */
+/* 옵션 등장 빈도 스타일 */
+.option-frequency-section {
+  margin-top: 24px;
+  padding: 16px;
+  background: #f0f8ff;
+  border-radius: 8px;
+}
+
+.option-frequency-section h3 {
+  margin-bottom: 8px;
+  color: #333;
+}
+
+.option-frequency-grid {
+  margin-top: 15px;
+}
+
+.frequency-comparison {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 15px;
+  margin-bottom: 20px;
+}
+
+.frequency-category {
+  background: white;
+  padding: 15px;
+  border-radius: 5px;
+}
+
+.frequency-category h4 {
+  margin: 0 0 10px 0;
+  font-size: 14px;
+  color: #666;
+}
+
+.frequency-item {
+  display: grid;
+  grid-template-columns: 60px 1fr auto;
+  align-items: center;
+  padding: 5px 0;
+  border-bottom: 1px solid #eee;
+}
+
+.frequency-item:last-child {
+  border-bottom: none;
+}
+
+.option-name {
+  font-weight: bold;
+  color: #333;
+}
+
+.option-count {
+  text-align: right;
+  color: #666;
+}
+
+.option-percent {
+  text-align: right;
+  color: #999;
+  font-size: 12px;
+  margin-left: 10px;
+}
+
+.frequency-summary {
+  display: flex;
+  justify-content: space-around;
+  padding: 15px;
+  background: white;
+  border-radius: 5px;
+}
+
+.summary-item {
+  text-align: center;
+}
+
+.summary-item strong {
+  display: block;
+  font-size: 18px;
+  color: #2c3e50;
+  margin-top: 5px;
+}
+
+.category-total {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 2px solid #e0e0e0;
+  font-weight: bold;
+  color: #2c3e50;
+}
+
+.frequency-other {
+  margin-top: 20px;
+  padding: 15px;
+  background: white;
+  border-radius: 5px;
+}
+
+.frequency-other h4 {
+  margin: 0 0 10px 0;
+  color: #666;
+}
+
+.other-options-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.frequency-item-inline {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  padding: 5px;
+  background: #f8f9fa;
+  border-radius: 3px;
+  font-size: 13px;
+}
+
+.frequency-item-inline .option-name {
+  font-weight: normal;
+}
+
+.frequency-item-inline .option-percent {
+  margin-left: 0;
+}
+
+.attempt-stats-section {
+  margin-top: 24px;
+  padding: 16px;
+  background: #f8f9fa;
+  border-radius: 8px;
+}
+
+.attempt-stats-section h3 {
+  margin-bottom: 8px;
+  color: #333;
+}
+
+.stats-description {
+  color: #666;
+  font-size: 0.9em;
+  margin-bottom: 16px;
+}
+
+.attempt-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.attempt-stat-item {
+  background: white;
+  padding: 12px;
+  border-radius: 6px;
+  border: 1px solid #ddd;
+  text-align: center;
+}
+
+.attempt-number {
+  font-weight: bold;
+  color: #333;
+  margin-bottom: 4px;
+}
+
+.attempt-avg-value {
+  font-size: 1.1em;
+  font-weight: bold;
+  margin-bottom: 4px;
+}
+
+.attempt-avg-value.positive {
+  color: #4CAF50;
+}
+
+.attempt-avg-value.negative {
+  color: #f44336;
+}
+
+.attempt-stdev {
+  font-size: 0.9em;
+  color: #666;
+  margin-bottom: 4px;
+}
+
+.attempt-reroll {
+  font-size: 0.85em;
+  color: #2196F3;
+  margin-bottom: 4px;
+  font-weight: 500;
+}
+
+.attempt-range {
+  font-size: 0.8em;
+  color: #888;
+}
+
+/* 전략 선택 UI */
+.threshold-hint {
+  font-size: 0.85em;
+  color: #666;
+  margin-left: 8px;
 }

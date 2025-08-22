@@ -107,22 +107,27 @@ function checkCondition(condition, gem) {
   }
 }
 
+// Fisher-Yates 셔플 알고리즘 (완전한 랜덤 셔플)
+function fisherYatesShuffle(array) {
+  const result = [...array];
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
+}
+
 // 가능한 가공 옵션 생성
 function generateProcessingOptions(gem) {
-  const availableOptions = {};
+  const availableOptions = [];
   
+  // 모든 가능한 옵션을 배열로 수집
   for (const [action, config] of Object.entries(PROCESSING_POSSIBILITIES)) {
     if (checkCondition(config.condition, gem)) {
-      availableOptions[action] = config.probability;
-    }
-  }
-  
-  // 확률 정규화 (제외된 옵션들로 인해 100%가 되지 않을 수 있음)
-  const totalProbability = Object.values(availableOptions).reduce((sum, prob) => sum + prob, 0);
-  
-  if (totalProbability > 0) {
-    for (const action in availableOptions) {
-      availableOptions[action] = availableOptions[action] / totalProbability;
+      availableOptions.push({
+        action: action,
+        probability: config.probability
+      });
     }
   }
   
@@ -131,7 +136,21 @@ function generateProcessingOptions(gem) {
 
 // 가공 실행
 function executeProcessing(gem, selectedOption) {
-  const newGem = { ...gem };
+  // 안전성 검사
+  if (!gem) {
+    return gem;
+  }
+  
+  const newGem = { 
+    ...gem,
+    effect1: gem.effect1 ? { ...gem.effect1 } : { name: '공격력', level: 1 },
+    effect2: gem.effect2 ? { ...gem.effect2 } : { name: '추가 피해', level: 1 }
+  };
+  
+  // effect1, effect2가 올바르게 설정되었는지 확인
+  if (!newGem.effect1 || !newGem.effect2) {
+    return gem; // 안전하게 원본 반환
+  }
   
   const [property, operation] = selectedOption.split('_');
   
@@ -173,24 +192,29 @@ function executeProcessing(gem, selectedOption) {
           }
         };
         const effectPool = GEM_EFFECTS[newGem.mainType][newGem.subType];
-        const currentEffect = newGem[property].name;
-        const otherEffect = property === 'effect1' ? newGem.effect2.name : newGem.effect1.name;
+        const currentEffect = newGem[property]?.name;
+        const otherProperty = property === 'effect1' ? 'effect2' : 'effect1';
+        const otherEffect = newGem[otherProperty]?.name;
         
         // 현재 효과와 다른 효과를 제외한 새로운 효과 선택
         const availableEffects = effectPool.filter(effect => 
           effect !== currentEffect && effect !== otherEffect
         );
         
-        if (availableEffects.length > 0) {
+        if (availableEffects.length > 0 && newGem[property]) {
           const randomEffect = availableEffects[Math.floor(Math.random() * availableEffects.length)];
           newGem[property].name = randomEffect;
         }
       } else if (operation.startsWith('+')) {
         const increase = parseInt(operation.substring(1));
-        newGem[property].level = Math.min(5, newGem[property].level + increase);
+        if (newGem[property]) {
+          newGem[property].level = Math.min(5, (newGem[property].level || 1) + increase);
+        }
       } else if (operation.startsWith('-')) {
         const decrease = parseInt(operation.substring(1));
-        newGem[property].level = Math.max(1, newGem[property].level - decrease);
+        if (newGem[property]) {
+          newGem[property].level = Math.max(1, (newGem[property].level || 1) - decrease);
+        }
       }
       break;
       
@@ -220,7 +244,8 @@ function executeProcessing(gem, selectedOption) {
   newGem.processingCount = (newGem.processingCount || 0) + 1;
   
   // 총 포인트 재계산
-  newGem.totalPoints = newGem.willpower + newGem.corePoint + newGem.effect1.level + newGem.effect2.level;
+  newGem.totalPoints = (newGem.willpower || 0) + (newGem.corePoint || 0) + 
+                      (newGem.effect1?.level || 0) + (newGem.effect2?.level || 0);
   
   return newGem;
 }
@@ -253,24 +278,21 @@ export function getAllOptionsStatus(gem) {
 
 // 젬 가공 메인 함수
 export function processGem(gem) {
-  // 가공 가능한 옵션들 생성 (4개)
+  // 가공 가능한 옵션들 생성
   const availableOptions = generateProcessingOptions(gem);
-  const optionKeys = Object.keys(availableOptions);
   
-  // 디버깅: 모든 옵션 상태 로그
-  console.log('젬 상태:', gem);
-  console.log('사용 가능한 옵션:', optionKeys.length, optionKeys);
-  console.log('모든 옵션 상태:', getAllOptionsStatus(gem));
+  // Fisher-Yates 셔플로 완전히 랜덤하게 섞기
+  const shuffled = fisherYatesShuffle(availableOptions);
   
-  // 4개 옵션 랜덤 선택
+  // 첫 4개 선택 (또는 가능한 모든 옵션)
   const selectedOptions = [];
-  const shuffled = [...optionKeys].sort(() => Math.random() - 0.5);
+  const numOptions = Math.min(4, shuffled.length);
   
-  for (let i = 0; i < Math.min(4, shuffled.length); i++) {
+  for (let i = 0; i < numOptions; i++) {
     selectedOptions.push({
-      action: shuffled[i],
-      description: getOptionDescription(shuffled[i]),
-      probability: 0.25 // 4개 중 각각 25% 확률
+      action: shuffled[i].action,
+      description: getOptionDescription(shuffled[i].action),
+      probability: shuffled[i].probability // 원래 확률 (표시용)
     });
   }
   
@@ -288,8 +310,12 @@ export function rerollProcessingOptions(gem) {
     return null; // 재생성 불가
   }
   
-  const newGem = { ...gem };
-  newGem.currentRerollAttempts -= 1;
+  const newGem = { 
+    ...gem,
+    effect1: gem.effect1 ? { ...gem.effect1 } : { name: '공격력', level: 1 },
+    effect2: gem.effect2 ? { ...gem.effect2 } : { name: '추가 피해', level: 1 },
+    currentRerollAttempts: gem.currentRerollAttempts - 1
+  };
   
   return {
     gem: newGem,
@@ -333,17 +359,111 @@ function getOptionDescription(action) {
 }
 
 // 초기 젬 생성 (가공용)
+// 옵션의 포인트 값 계산 (포인트 변화 옵션만)
+function getOptionValue(action) {
+  // 포인트에 영향을 주는 옵션만 고려
+  const match = action.match(/(willpower|corePoint|effect1|effect2)_([+-]\d+)/);
+  if (!match) return null; // 포인트 변화가 아닌 옵션은 null 반환
+  
+  const value = parseInt(match[2]);
+  return value;
+}
+
+// 전략 정의
+export const PROCESSING_STRATEGIES = {
+  NO_REROLL: {
+    name: '기본 전략 (다른 항목 보기 사용 안함)',
+    description: '다른 항목 보기를 전혀 사용하지 않고 끝까지 진행',
+    shouldReroll: () => false
+  },
+  THRESHOLD_REROLL: {
+    name: '임계값 기반 전략',
+    description: '옵션 평균 값이 임계값 이하일 때 다른 항목 보기 사용',
+    params: { threshold: 0 },
+    shouldReroll: (gem, options, params = { threshold: 0 }) => {
+      if (gem.currentRerollAttempts <= 0 || gem.processingCount === 0) return false;
+      
+      // 모든 옵션을 고려한 기댓값 계산 (포인트 변화 없는 옵션은 0으로 계산)
+      const optionValues = options.map(opt => getOptionValue(opt.action) || 0);
+      
+      if (optionValues.length === 0) return false;
+      
+      const average = optionValues.reduce((a, b) => a + b, 0) / optionValues.length;
+      return average <= params.threshold;
+    },
+    wantsReroll: (gem, options, params = { threshold: 0 }) => {
+      // 1회차에는 리롤 자체가 불가능
+      if (gem.processingCount === 0) return false;
+      
+      // 모든 옵션을 고려한 기댓값 계산 (포인트 변화 없는 옵션은 0으로 계산)
+      const optionValues = options.map(opt => getOptionValue(opt.action) || 0);
+      
+      if (optionValues.length === 0) return false;
+      
+      const average = optionValues.reduce((a, b) => a + b, 0) / optionValues.length;
+      return average <= params.threshold;
+    }
+  }
+};
+
 // 가공 시뮬레이션 (가공 횟수를 모두 소모할 때까지)
-export function simulateProcessing(initialGem) {
+export function simulateProcessing(initialGem, trackOptions = false, strategy = PROCESSING_STRATEGIES.NO_REROLL, strategyParams = {}) {
   let gem = { ...initialGem };
   const history = [{ ...gem }];
+  const optionValuesByAttempt = []; // 각 차수별 옵션 값들
+  let totalRerollsUsed = 0;
+  let totalRerollsWanted = 0; // 리롤하고 싶었지만 못한 횟수
+  let earlyTerminated = false; // 조기 종료 여부
+  const optionAppearances = {}; // 옵션 등장 횟수 추적
   
   while (gem.remainingAttempts > 0) {
     // 가공 옵션 생성
-    const options = processGem(gem);
+    let options = processGem(gem);
     
     if (options.length === 0) {
       break; // 옵션이 없으면 중단
+    }
+    
+    // 전략에 따라 다른 항목 보기 사용 여부 결정
+    // 먼저 리롤을 원하는지 체크 (wantsReroll이 있으면 사용, 없으면 shouldReroll 사용)
+    const wantsToReroll = strategy.wantsReroll ? 
+      strategy.wantsReroll(gem, options, strategyParams) : 
+      strategy.shouldReroll(gem, options, strategyParams);
+    
+    if (wantsToReroll && gem.currentRerollAttempts <= 0) {
+      // 리롤하고 싶지만 횟수가 없는 경우
+      totalRerollsWanted++;
+    }
+    
+    let rerollUsedThisAttempt = false;
+    if (strategy.shouldReroll(gem, options, strategyParams)) {
+      const rerollResult = rerollProcessingOptions(gem);
+      if (rerollResult && rerollResult.gem) {
+        gem = rerollResult.gem;
+        totalRerollsUsed++;
+        rerollUsedThisAttempt = true;
+        options = processGem(gem); // 새로운 옵션 생성
+      }
+    }
+    
+    // 옵션 값들 추적 (통계 분석용) - 리롤 후 최종 옵션으로 추적
+    if (trackOptions) {
+      const attemptNumber = history.length; // 현재 가공 차수
+      // 모든 옵션을 고려한 기댓값 계산 (포인트 변화 없는 옵션은 0으로 계산)
+      const optionValues = options.map(opt => getOptionValue(opt.action) || 0);
+      
+      // 각 옵션 등장 횟수 추적
+      options.forEach(opt => {
+        optionAppearances[opt.action] = (optionAppearances[opt.action] || 0) + 1;
+      });
+      
+      optionValuesByAttempt.push({
+        attempt: attemptNumber,
+        values: optionValues,
+        average: optionValues.length > 0 ? 
+          optionValues.reduce((a, b) => a + b, 0) / optionValues.length : 0,
+        rerollUsed: rerollUsedThisAttempt
+      });
     }
     
     // 랜덤하게 옵션 선택 (25% 확률)
@@ -353,26 +473,101 @@ export function simulateProcessing(initialGem) {
     // 가공 실행
     gem = executeGemProcessing(gem, selectedAction);
     history.push({ ...gem });
+    
+    // 조기 종료 체크 (가공을 1회 이상 진행하고 총 포인트가 20)
+    if (gem.processingCount >= 1 && gem.totalPoints === 20) {
+      earlyTerminated = true;
+      break;
+    }
   }
   
   return {
     finalGem: gem,
     history: history,
-    totalProcessingSteps: history.length - 1
+    totalProcessingSteps: history.length - 1,
+    optionValuesByAttempt: optionValuesByAttempt,
+    totalRerollsUsed: totalRerollsUsed,
+    totalRerollsWanted: totalRerollsWanted,
+    remainingRerolls: gem.currentRerollAttempts || 0,
+    earlyTerminated: earlyTerminated,
+    optionAppearances: trackOptions ? optionAppearances : null
   };
 }
 
 // 대량 가공 시뮬레이션
-export function bulkProcessingSimulation(mainType, subType, grade, simulationCount) {
+export function bulkProcessingSimulation(mainType, subType, grade, simulationCount, trackOptions = false, strategy = PROCESSING_STRATEGIES.NO_REROLL, strategyParams = {}) {
   const results = [];
   
   for (let i = 0; i < simulationCount; i++) {
     const initialGem = createProcessingGem(mainType, subType, grade);
-    const result = simulateProcessing(initialGem);
+    const result = simulateProcessing(initialGem, trackOptions, strategy, strategyParams);
     results.push(result);
   }
   
   return results;
+}
+
+// 차수별 옵션 값 통계 계산
+export function calculateAttemptWiseOptionStats(results) {
+  if (results.length === 0 || !results[0].optionValuesByAttempt) return null;
+  
+  // 최대 가공 차수 찾기 (스택 오버플로우 방지)
+  let maxAttempts = 0;
+  for (const result of results) {
+    if (result.optionValuesByAttempt && result.optionValuesByAttempt.length > maxAttempts) {
+      maxAttempts = result.optionValuesByAttempt.length;
+    }
+  }
+  
+  const attemptStats = [];
+  
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const averagesAtThisAttempt = [];
+    let totalSamples = 0;
+    let rerollCount = 0;
+    
+    results.forEach(result => {
+      const attemptData = result.optionValuesByAttempt.find(a => a.attempt === attempt);
+      if (attemptData && attemptData.average !== null) {
+        averagesAtThisAttempt.push(attemptData.average);
+        totalSamples++;
+        if (attemptData.rerollUsed) {
+          rerollCount++;
+        }
+      }
+    });
+    
+    if (averagesAtThisAttempt.length > 0) {
+      const avgOfAverages = averagesAtThisAttempt.reduce((a, b) => a + b, 0) / averagesAtThisAttempt.length;
+      
+      // 스택 오버플로우 방지
+      let min = averagesAtThisAttempt[0];
+      let max = averagesAtThisAttempt[0];
+      for (const val of averagesAtThisAttempt) {
+        if (val < min) min = val;
+        if (val > max) max = val;
+      }
+      const rerollRate = (rerollCount / totalSamples) * 100;
+      
+      // 표준편차 계산
+      const variance = averagesAtThisAttempt.reduce((sum, val) => {
+        return sum + Math.pow(val - avgOfAverages, 2);
+      }, 0) / averagesAtThisAttempt.length;
+      const stdev = Math.sqrt(variance);
+      
+      attemptStats.push({
+        attempt: attempt,
+        avgOptionValue: avgOfAverages,
+        stdev: stdev,
+        minAvg: min,
+        maxAvg: max,
+        samples: totalSamples,
+        rerollRate: rerollRate
+      });
+    }
+  }
+  
+  return attemptStats;
 }
 
 // 포인트에 따른 등급 결정
@@ -390,6 +585,11 @@ export function calculateProcessingStatistics(results) {
     totalRuns: results.length,
     averageTotalPoints: 0,
     averageProcessingSteps: 0,
+    averageRerollsUsed: 0,
+    averageRerollsWanted: 0,
+    averageRemainingRerolls: 0,
+    earlyTerminationRate: 0,
+    earlyTerminationCount: 0,
     gradeDistribution: {
       LEGENDARY: 0,
       RELIC: 0,
@@ -400,12 +600,22 @@ export function calculateProcessingStatistics(results) {
     corePointDistribution: {},
     effect1Distribution: {},
     effect2Distribution: {},
+    rerollUsageDistribution: {},
+    rerollsWantedDistribution: {},
+    remainingRerollsDistribution: {},
+    optionAppearanceFrequency: {}, // 옵션 등장 빈도
     bestGems: [],
     worstGems: []
   };
   
   let totalPoints = 0;
   let totalSteps = 0;
+  let totalRerolls = 0;
+  let totalRerollsWanted = 0;
+  let totalRemainingRerolls = 0;
+  let earlyTerminationCount = 0;
+  let totalWillpower = 0;
+  let totalCorePoint = 0;
   
   results.forEach(result => {
     const gem = result.finalGem;
@@ -421,15 +631,56 @@ export function calculateProcessingStatistics(results) {
     // 가공 단계 통계
     totalSteps += result.totalProcessingSteps;
     
+    // 리롤 사용 통계
+    const rerollsUsed = result.totalRerollsUsed || 0;
+    totalRerolls += rerollsUsed;
+    stats.rerollUsageDistribution[rerollsUsed] = (stats.rerollUsageDistribution[rerollsUsed] || 0) + 1;
+    
+    // 리롤 원했지만 못한 통계
+    const rerollsWanted = result.totalRerollsWanted || 0;
+    totalRerollsWanted += rerollsWanted;
+    stats.rerollsWantedDistribution[rerollsWanted] = (stats.rerollsWantedDistribution[rerollsWanted] || 0) + 1;
+    
+    // 남은 리롤 횟수 통계
+    const remainingRerolls = result.remainingRerolls || 0;
+    totalRemainingRerolls += remainingRerolls;
+    stats.remainingRerollsDistribution[remainingRerolls] = (stats.remainingRerollsDistribution[remainingRerolls] || 0) + 1;
+    
+    // 조기 종료 통계
+    if (result.earlyTerminated) {
+      earlyTerminationCount++;
+    }
+    
     // 개별 능력치 분포
-    stats.willpowerDistribution[gem.willpower] = (stats.willpowerDistribution[gem.willpower] || 0) + 1;
-    stats.corePointDistribution[gem.corePoint] = (stats.corePointDistribution[gem.corePoint] || 0) + 1;
-    stats.effect1Distribution[gem.effect1.level] = (stats.effect1Distribution[gem.effect1.level] || 0) + 1;
-    stats.effect2Distribution[gem.effect2.level] = (stats.effect2Distribution[gem.effect2.level] || 0) + 1;
+    stats.willpowerDistribution[gem.willpower || 1] = (stats.willpowerDistribution[gem.willpower || 1] || 0) + 1;
+    stats.corePointDistribution[gem.corePoint || 1] = (stats.corePointDistribution[gem.corePoint || 1] || 0) + 1;
+    
+    // 의지력/코어포인트 총합 계산
+    totalWillpower += gem.willpower || 1;
+    totalCorePoint += gem.corePoint || 1;
+    
+    const effect1Level = gem.effect1?.level || 1;
+    const effect2Level = gem.effect2?.level || 1;
+    stats.effect1Distribution[effect1Level] = (stats.effect1Distribution[effect1Level] || 0) + 1;
+    stats.effect2Distribution[effect2Level] = (stats.effect2Distribution[effect2Level] || 0) + 1;
+    
+    // 옵션 등장 빈도 집계
+    if (result.optionAppearances) {
+      for (const [option, count] of Object.entries(result.optionAppearances)) {
+        stats.optionAppearanceFrequency[option] = (stats.optionAppearanceFrequency[option] || 0) + count;
+      }
+    }
   });
   
   stats.averageTotalPoints = totalPoints / results.length;
   stats.averageProcessingSteps = totalSteps / results.length;
+  stats.averageRerollsUsed = totalRerolls / results.length;
+  stats.averageRerollsWanted = totalRerollsWanted / results.length;
+  stats.averageRemainingRerolls = totalRemainingRerolls / results.length;
+  stats.averageWillpower = totalWillpower / results.length;
+  stats.averageCorePoint = totalCorePoint / results.length;
+  stats.earlyTerminationCount = earlyTerminationCount;
+  stats.earlyTerminationRate = (earlyTerminationCount / results.length) * 100;
   
   // 최고/최악 젬 찾기 (포인트 기준)
   const sortedByPoints = [...results].sort((a, b) => b.finalGem.totalPoints - a.finalGem.totalPoints);
@@ -454,7 +705,7 @@ export function createProcessingGem(mainType, subType, grade = 'UNCOMMON') {
     }
   };
   const effectPool = GEM_EFFECTS[mainType][subType];
-  const shuffled = [...effectPool].sort(() => Math.random() - 0.5);
+  const shuffled = fisherYatesShuffle(effectPool);
   
   // 등급별 다른 항목 보기 횟수 설정
   const getRerollAttempts = (grade) => {
@@ -476,18 +727,22 @@ export function createProcessingGem(mainType, subType, grade = 'UNCOMMON') {
     }
   };
   
-  return {
+  // 안전하게 효과 선택
+  const effect1Name = shuffled[0] || effectPool[0] || '공격력';
+  const effect2Name = shuffled[1] || effectPool[1] || '추가 피해';
+
+  const newGem = {
     grade,
     mainType,
     subType,
     willpower: 1,
     corePoint: 1,
     effect1: {
-      name: shuffled[0],
+      name: effect1Name,
       level: 1
     },
     effect2: {
-      name: shuffled[1],
+      name: effect2Name,
       level: 1
     },
     totalPoints: 4,
@@ -497,4 +752,6 @@ export function createProcessingGem(mainType, subType, grade = 'UNCOMMON') {
     processingCount: 0, // 가공 진행 횟수
     costIncrease: 0
   };
+  
+  return newGem;
 }

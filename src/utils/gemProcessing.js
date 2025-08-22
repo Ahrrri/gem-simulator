@@ -247,6 +247,13 @@ function executeProcessing(gem, selectedOption) {
   newGem.totalPoints = (newGem.willpower || 0) + (newGem.corePoint || 0) + 
                       (newGem.effect1?.level || 0) + (newGem.effect2?.level || 0);
   
+  // 가공 후 새로운 옵션 생성 (남은 가공 횟수가 있을 때만)
+  if (newGem.remainingAttempts > 0) {
+    newGem.currentOptions = processGem(newGem);
+  } else {
+    newGem.currentOptions = [];
+  }
+  
   return newGem;
 }
 
@@ -281,19 +288,38 @@ export function processGem(gem) {
   // 가공 가능한 옵션들 생성
   const availableOptions = generateProcessingOptions(gem);
   
-  // Fisher-Yates 셔플로 완전히 랜덤하게 섞기
-  const shuffled = fisherYatesShuffle(availableOptions);
-  
-  // 첫 4개 선택 (또는 가능한 모든 옵션)
+  // 가중치 기반으로 4개 옵션 선택
   const selectedOptions = [];
-  const numOptions = Math.min(4, shuffled.length);
+  const numOptions = Math.min(4, availableOptions.length);
+  
+  // 복제본 생성 (원본 배열 보존)
+  let remainingOptions = [...availableOptions];
   
   for (let i = 0; i < numOptions; i++) {
+    // 가중치 기반 랜덤 선택 (누적 분포 방식)
+    const totalWeight = remainingOptions.reduce((sum, opt) => sum + opt.probability, 0);
+    const random = Math.random() * totalWeight;
+    
+    let cumulativeWeight = 0;
+    let selectedIndex = remainingOptions.length - 1; // 기본값을 마지막으로 설정 (안전장치)
+    
+    for (let j = 0; j < remainingOptions.length; j++) {
+      cumulativeWeight += remainingOptions[j].probability;
+      if (random < cumulativeWeight) {
+        selectedIndex = j;
+        break;
+      }
+    }
+    
+    const selectedOption = remainingOptions[selectedIndex];
     selectedOptions.push({
-      action: shuffled[i].action,
-      description: getOptionDescription(shuffled[i].action),
-      probability: shuffled[i].probability // 원래 확률 (표시용)
+      action: selectedOption.action,
+      description: getOptionDescription(selectedOption.action),
+      probability: selectedOption.probability // 원래 확률 (표시용)
     });
+    
+    // 선택된 옵션을 목록에서 제거 (중복 방지)
+    remainingOptions.splice(selectedIndex, 1);
   }
   
   return selectedOptions;
@@ -317,10 +343,10 @@ export function rerollProcessingOptions(gem) {
     currentRerollAttempts: gem.currentRerollAttempts - 1
   };
   
-  return {
-    gem: newGem,
-    options: processGem(newGem)
-  };
+  // 새로운 옵션을 젬에 포함
+  newGem.currentOptions = processGem(newGem);
+  
+  return newGem;
 }
 
 // 옵션 설명 생성
@@ -415,10 +441,18 @@ export function simulateProcessing(initialGem, trackOptions = false, strategy = 
   let totalRerollsWanted = 0; // 리롤하고 싶었지만 못한 횟수
   let earlyTerminated = false; // 조기 종료 여부
   const optionAppearances = {}; // 옵션 등장 횟수 추적
+  let totalGoldSpent = 0; // 총 소모 골드
+  let isFirstProcessing = true; // 첫 번째 가공인지 확인
   
   while (gem.remainingAttempts > 0) {
-    // 가공 옵션 생성
-    let options = processGem(gem);
+    // 첫 번째 가공에서는 현재 옵션 사용, 그 이후에는 새로 생성
+    let options;
+    if (isFirstProcessing && gem.currentOptions && gem.currentOptions.length > 0) {
+      options = gem.currentOptions;
+      isFirstProcessing = false;
+    } else {
+      options = processGem(gem);
+    }
     
     if (options.length === 0) {
       break; // 옵션이 없으면 중단
@@ -438,11 +472,11 @@ export function simulateProcessing(initialGem, trackOptions = false, strategy = 
     let rerollUsedThisAttempt = false;
     if (strategy.shouldReroll(gem, options, strategyParams)) {
       const rerollResult = rerollProcessingOptions(gem);
-      if (rerollResult && rerollResult.gem) {
-        gem = rerollResult.gem;
+      if (rerollResult) {
+        gem = rerollResult;
+        options = gem.currentOptions;
         totalRerollsUsed++;
         rerollUsedThisAttempt = true;
-        options = processGem(gem); // 새로운 옵션 생성
       }
     }
     
@@ -470,6 +504,10 @@ export function simulateProcessing(initialGem, trackOptions = false, strategy = 
     const randomIndex = Math.floor(Math.random() * options.length);
     const selectedAction = options[randomIndex].action;
     
+    // 가공 비용 계산 (가공 실행 전)
+    const currentCost = 900 * (1 + (gem.costIncrease || 0) / 100);
+    totalGoldSpent += currentCost;
+    
     // 가공 실행
     gem = executeGemProcessing(gem, selectedAction);
     history.push({ ...gem });
@@ -490,7 +528,8 @@ export function simulateProcessing(initialGem, trackOptions = false, strategy = 
     totalRerollsWanted: totalRerollsWanted,
     remainingRerolls: gem.currentRerollAttempts || 0,
     earlyTerminated: earlyTerminated,
-    optionAppearances: trackOptions ? optionAppearances : null
+    optionAppearances: trackOptions ? optionAppearances : null,
+    totalGoldSpent: totalGoldSpent
   };
 }
 
@@ -577,6 +616,35 @@ function determineGradeByPoints(totalPoints) {
   return 'LEGENDARY';
 }
 
+// 특정 젬 상태에서 목표 달성 확률 계산 (몬테 카를로 시뮬레이션)
+export function calculateTargetProbabilities(currentGem, targets, simulationCount = 1000, strategy = PROCESSING_STRATEGIES.THRESHOLD_REROLL, threshold = 0) {
+  const results = [];
+  const strategyParams = { threshold };
+  
+  for (let i = 0; i < simulationCount; i++) {
+    // 현재 젬 상태를 복사해서 시뮬레이션 시작
+    const gemCopy = JSON.parse(JSON.stringify(currentGem));
+    const result = simulateProcessing(gemCopy, false, strategy, strategyParams);
+    results.push(result.finalGem);
+  }
+  
+  // 각 목표에 대한 달성 확률 계산
+  const probabilities = {};
+  targets.forEach(target => {
+    const [targetW, targetC] = target.split('/').map(Number);
+    const achievedCount = results.filter(gem => 
+      gem.willpower === targetW && gem.corePoint === targetC
+    ).length;
+    probabilities[target] = achievedCount / simulationCount;
+  });
+  
+  return {
+    probabilities,
+    totalSimulations: simulationCount,
+    completedSimulations: results.length
+  };
+}
+
 // 가공 시뮬레이션 통계 계산
 export function calculateProcessingStatistics(results) {
   if (results.length === 0) return null;
@@ -588,9 +656,22 @@ export function calculateProcessingStatistics(results) {
     averageRerollsUsed: 0,
     averageRerollsWanted: 0,
     averageRemainingRerolls: 0,
+    averageGoldSpent: 0,
+    minGoldSpent: Number.MAX_VALUE,
+    maxGoldSpent: 0,
     earlyTerminationRate: 0,
     earlyTerminationCount: 0,
     gradeDistribution: {
+      LEGENDARY: 0,
+      RELIC: 0,
+      ANCIENT: 0
+    },
+    gradeGoldAverage: {
+      LEGENDARY: 0,
+      RELIC: 0,
+      ANCIENT: 0
+    },
+    gradeGoldTotal: {
       LEGENDARY: 0,
       RELIC: 0,
       ANCIENT: 0
@@ -616,6 +697,9 @@ export function calculateProcessingStatistics(results) {
   let earlyTerminationCount = 0;
   let totalWillpower = 0;
   let totalCorePoint = 0;
+  let totalEffect1Level = 0;
+  let totalEffect2Level = 0;
+  let totalGoldSpent = 0;
   
   results.forEach(result => {
     const gem = result.finalGem;
@@ -627,6 +711,13 @@ export function calculateProcessingStatistics(results) {
     // 등급 분포 (포인트 기준)
     const grade = determineGradeByPoints(gem.totalPoints);
     stats.gradeDistribution[grade]++;
+    
+    // 골드 통계
+    const goldSpent = result.totalGoldSpent || 0;
+    totalGoldSpent += goldSpent;
+    stats.minGoldSpent = Math.min(stats.minGoldSpent, goldSpent);
+    stats.maxGoldSpent = Math.max(stats.maxGoldSpent, goldSpent);
+    stats.gradeGoldTotal[grade] += goldSpent;
     
     // 가공 단계 통계
     totalSteps += result.totalProcessingSteps;
@@ -664,6 +755,10 @@ export function calculateProcessingStatistics(results) {
     stats.effect1Distribution[effect1Level] = (stats.effect1Distribution[effect1Level] || 0) + 1;
     stats.effect2Distribution[effect2Level] = (stats.effect2Distribution[effect2Level] || 0) + 1;
     
+    // 효과 레벨 총합 계산
+    totalEffect1Level += effect1Level;
+    totalEffect2Level += effect2Level;
+    
     // 옵션 등장 빈도 집계
     if (result.optionAppearances) {
       for (const [option, count] of Object.entries(result.optionAppearances)) {
@@ -679,8 +774,23 @@ export function calculateProcessingStatistics(results) {
   stats.averageRemainingRerolls = totalRemainingRerolls / results.length;
   stats.averageWillpower = totalWillpower / results.length;
   stats.averageCorePoint = totalCorePoint / results.length;
+  stats.averageEffect1Level = totalEffect1Level / results.length;
+  stats.averageEffect2Level = totalEffect2Level / results.length;
+  stats.averageGoldSpent = totalGoldSpent / results.length;
   stats.earlyTerminationCount = earlyTerminationCount;
   stats.earlyTerminationRate = (earlyTerminationCount / results.length) * 100;
+  
+  // 등급별 평균 골드 계산
+  for (const grade of ['LEGENDARY', 'RELIC', 'ANCIENT']) {
+    if (stats.gradeDistribution[grade] > 0) {
+      stats.gradeGoldAverage[grade] = stats.gradeGoldTotal[grade] / stats.gradeDistribution[grade];
+    }
+  }
+  
+  // minGoldSpent가 초기값이면 0으로 설정
+  if (stats.minGoldSpent === Number.MAX_VALUE) {
+    stats.minGoldSpent = 0;
+  }
   
   // 최고/최악 젬 찾기 (포인트 기준)
   const sortedByPoints = [...results].sort((a, b) => b.finalGem.totalPoints - a.finalGem.totalPoints);
@@ -752,6 +862,9 @@ export function createProcessingGem(mainType, subType, grade = 'UNCOMMON') {
     processingCount: 0, // 가공 진행 횟수
     costIncrease: 0
   };
+  
+  // 초기 옵션 생성하여 포함
+  newGem.currentOptions = processGem(newGem);
   
   return newGem;
 }

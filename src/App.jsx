@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import './App.css';
 import { fuseGems, calculateStatistics, getFusionProbabilities, GEM_TYPES } from './utils/gemFusion';
-import { processGem, executeGemProcessing, createProcessingGem, rerollProcessingOptions, getAllOptionsStatus, bulkProcessingSimulation, calculateProcessingStatistics, calculateAttemptWiseOptionStats, PROCESSING_STRATEGIES } from './utils/gemProcessing';
+import { executeGemProcessing, createProcessingGem, rerollProcessingOptions, getAllOptionsStatus, bulkProcessingSimulation, calculateProcessingStatistics, calculateAttemptWiseOptionStats, calculateTargetProbabilities, PROCESSING_STRATEGIES } from './utils/gemProcessing';
 
 function App() {
   const [materials, setMaterials] = useState([
@@ -44,7 +44,6 @@ function App() {
   
   // 젬 가공 관련 상태
   const [processingGem, setProcessingGem] = useState(null);
-  const [processingOptions, setProcessingOptions] = useState([]);
   const [processingHistory, setProcessingHistory] = useState([]);
   const [selectedProcessingGrade, setSelectedProcessingGrade] = useState('RARE');
   const [lastProcessingResult, setLastProcessingResult] = useState(null);
@@ -60,6 +59,114 @@ function App() {
   const [selectedProcessingCombo, setSelectedProcessingCombo] = useState(null);
   const [selectedStrategy, setSelectedStrategy] = useState('NO_REROLL');
   const [strategyThreshold, setStrategyThreshold] = useState(0);
+  const [showNormalizedProbability, setShowNormalizedProbability] = useState(false);
+  
+  // 목표 확률 계산 관련 상태
+  const [targetProbabilities, setTargetProbabilities] = useState(null);
+  const [isCalculatingProbabilities, setIsCalculatingProbabilities] = useState(false);
+  const [manualRerollThreshold, setManualRerollThreshold] = useState(0);
+  
+  // 특정 결과 목표 리스트 (의지력 + 코어포인트 >= 8)
+  const targetGoals = ['5/5', '5/4', '4/5', '5/3', '4/4', '3/5'];
+  
+  // 합 기준 목표
+  const sumTargets = [
+    { key: 'sum9+', label: '합 9+', minSum: 9 },
+    { key: 'sum8+', label: '합 8+', minSum: 8 }
+  ];
+  
+  // 특정 목표 이상의 누적 확률 계산
+  const calculateCumulativeProbabilities = (probabilities) => {
+    const cumulativeProbs = {};
+    
+    targetGoals.forEach(target => {
+      const [targetW, targetC] = target.split('/').map(Number);
+      
+      let cumulativeProb = 0;
+      targetGoals.forEach(otherTarget => {
+        const [otherW, otherC] = otherTarget.split('/').map(Number);
+        
+        // 의지력과 코어포인트가 모두 목표 이상인 조합의 확률 합산
+        if (otherW >= targetW && otherC >= targetC) {
+          cumulativeProb += probabilities[otherTarget] || 0;
+        }
+      });
+      
+      cumulativeProbs[target] = cumulativeProb;
+    });
+    
+    return cumulativeProbs;
+  };
+  
+  // 실시간 확률 계산 함수
+  const calculateRealTimeProbabilities = async (gem) => {
+    if (!gem || gem.remainingAttempts === 0) {
+      setTargetProbabilities(null);
+      return;
+    }
+    
+    setIsCalculatingProbabilities(true);
+    
+    // 백그라운드에서 점진적으로 계산
+    const batchSize = 10000;
+    const totalSimulations = 10000;
+    let completedSimulations = 0;
+    const targetCounts = {};
+    const sumCounts = {};
+    
+    targetGoals.forEach(target => targetCounts[target] = 0);
+    sumTargets.forEach(sumTarget => sumCounts[sumTarget.key] = 0);
+    
+    for (let i = 0; i < totalSimulations; i += batchSize) {
+      const currentBatchSize = Math.min(batchSize, totalSimulations - i);
+      
+      // 배치 단위로 시뮬레이션 실행
+      for (let j = 0; j < currentBatchSize; j++) {
+        const gemCopy = JSON.parse(JSON.stringify(gem));
+        const result = calculateTargetProbabilities(gemCopy, targetGoals, 1, PROCESSING_STRATEGIES.THRESHOLD_REROLL, manualRerollThreshold);
+        
+        // 시뮬레이션 결과에서 실제 젬 정보 가져오기
+        const finalGem = result.probabilities; // 실제로는 finalGem을 반환해야 함
+        
+        // 각 목표에 대해 달성 여부 확인
+        targetGoals.forEach(target => {
+          if (result.probabilities[target] > 0) {
+            targetCounts[target]++;
+          }
+        });
+        
+        // 합 기준 목표 확인 (시뮬레이션 결과의 의지력+코어포인트 합 계산 필요)
+        // 임시로 결과 확률에서 추정
+        const hasSum9Plus = result.probabilities['5/5'] > 0 || result.probabilities['5/4'] > 0 || result.probabilities['4/5'] > 0;
+        const hasSum8Plus = hasSum9Plus || result.probabilities['5/3'] > 0 || result.probabilities['4/4'] > 0 || result.probabilities['3/5'] > 0;
+        
+        if (hasSum9Plus) sumCounts['sum9+']++;
+        if (hasSum8Plus) sumCounts['sum8+']++;
+      }
+      
+      completedSimulations += currentBatchSize;
+      
+      // 중간 결과 업데이트
+      const currentProbabilities = {};
+      targetGoals.forEach(target => {
+        currentProbabilities[target] = targetCounts[target] / completedSimulations;
+      });
+      sumTargets.forEach(sumTarget => {
+        currentProbabilities[sumTarget.key] = sumCounts[sumTarget.key] / completedSimulations;
+      });
+      
+      setTargetProbabilities({
+        probabilities: currentProbabilities,
+        completedSimulations,
+        totalSimulations
+      });
+      
+      // UI 업데이트를 위한 짧은 대기
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+    
+    setIsCalculatingProbabilities(false);
+  };
 
   // 재료 젬 업데이트
   const updateMaterial = (index, field, value) => {
@@ -234,6 +341,15 @@ function App() {
   const handleProcessingComboClick = (combo) => {
     setSelectedProcessingCombo(selectedProcessingCombo === combo ? null : combo);
   };
+
+  // 젬 상태가 변경될 때마다 확률 계산
+  useEffect(() => {
+    if (processingGem && processingGem.remainingAttempts > 0) {
+      calculateRealTimeProbabilities(processingGem);
+    } else {
+      setTargetProbabilities(null);
+    }
+  }, [processingGem, manualRerollThreshold]);
 
   return (
     <div className="App">
@@ -430,6 +546,10 @@ function App() {
                 <span>유물: <strong>{(statistics.gradeDistribution.RELIC / statistics.totalRuns * 100).toFixed(1)}%</strong></span>
                 <span>고대: <strong>{(statistics.gradeDistribution.ANCIENT / statistics.totalRuns * 100).toFixed(1)}%</strong></span>
               </div>
+              <div className="stat-row">
+                <span>총 골드: <strong>{statistics.totalGoldSpent ? statistics.totalGoldSpent.toLocaleString() : '0'}</strong></span>
+                <span>평균 골드: <strong>{statistics.averageGoldSpent ? statistics.averageGoldSpent.toFixed(0) : '0'}</strong></span>
+              </div>
             </div>
 
             {/* 의지력/코어포인트 조합 분포 */}
@@ -564,7 +684,6 @@ function App() {
                                 const [mainType, subType] = option.value.split('_');
                                 const newGem = createProcessingGem(mainType, subType, selectedProcessingGrade);
                                 setProcessingGem(newGem);
-                                setProcessingOptions(processGem(newGem));
                                 setProcessingHistory([newGem]);
                                 setLastProcessingResult(null);
                               }}
@@ -724,12 +843,23 @@ function App() {
                   <div className="stat-row">
                     <span>평균 의지력: <strong>{processingStatistics.averageWillpower ? processingStatistics.averageWillpower.toFixed(3) : '0.000'}</strong></span>
                     <span>평균 코어포인트: <strong>{processingStatistics.averageCorePoint ? processingStatistics.averageCorePoint.toFixed(3) : '0.000'}</strong></span>
-                    <span>의지력-코어포인트: <strong>{processingStatistics.averageWillpower && processingStatistics.averageCorePoint ? (processingStatistics.averageWillpower - processingStatistics.averageCorePoint).toFixed(3) : '0.000'}</strong></span>
+                    <span>평균 첫 번째 효과: <strong>{processingStatistics.averageEffect1Level ? processingStatistics.averageEffect1Level.toFixed(3) : '0.000'}</strong></span>
+                    <span>평균 두 번째 효과: <strong>{processingStatistics.averageEffect2Level ? processingStatistics.averageEffect2Level.toFixed(3) : '0.000'}</strong></span>
                   </div>
                   <div className="stat-row">
                     <span>전설: <strong>{(processingStatistics.gradeDistribution.LEGENDARY / processingStatistics.totalRuns * 100).toFixed(2)}%</strong></span>
                     <span>유물: <strong>{(processingStatistics.gradeDistribution.RELIC / processingStatistics.totalRuns * 100).toFixed(2)}%</strong></span>
                     <span>고대: <strong>{(processingStatistics.gradeDistribution.ANCIENT / processingStatistics.totalRuns * 100).toFixed(2)}%</strong></span>
+                  </div>
+                  <div className="stat-row">
+                    <span>평균 골드: <strong>{processingStatistics.averageGoldSpent ? processingStatistics.averageGoldSpent.toFixed(0) : '0'}</strong></span>
+                    <span>최소 골드: <strong>{processingStatistics.minGoldSpent ? processingStatistics.minGoldSpent.toFixed(0) : '0'}</strong></span>
+                    <span>최대 골드: <strong>{processingStatistics.maxGoldSpent ? processingStatistics.maxGoldSpent.toFixed(0) : '0'}</strong></span>
+                  </div>
+                  <div className="stat-row">
+                    <span>전설 평균 골드: <strong>{processingStatistics.gradeGoldAverage?.LEGENDARY ? processingStatistics.gradeGoldAverage.LEGENDARY.toFixed(0) : '0'}</strong></span>
+                    <span>유물 평균 골드: <strong>{processingStatistics.gradeGoldAverage?.RELIC ? processingStatistics.gradeGoldAverage.RELIC.toFixed(0) : '0'}</strong></span>
+                    <span>고대 평균 골드: <strong>{processingStatistics.gradeGoldAverage?.ANCIENT ? processingStatistics.gradeGoldAverage.ANCIENT.toFixed(0) : '0'}</strong></span>
                   </div>
                 </div>
 
@@ -1042,31 +1172,61 @@ function App() {
                   {/* 오른쪽: 컴팩트한 옵션 상태 패널 */}
                   <div className="processing-right">
                     <div className="options-status-panel">
-                      <h4>⚙️ 가공 옵션 상태</h4>
+                      <div className="options-status-header">
+                        <h4>⚙️ 가공 옵션 상태</h4>
+                        <label className="probability-checkbox">
+                          <input
+                            type="checkbox"
+                            checked={showNormalizedProbability}
+                            onChange={(e) => setShowNormalizedProbability(e.target.checked)}
+                          />
+                          불가능 옵션 고려한 확률 표시
+                        </label>
+                      </div>
                       {(() => {
                         const allOptions = getAllOptionsStatus(processingGem);
+                        
+                        // 선택된 4개 옵션의 액션들 추출
+                        const selectedActions = new Set((processingGem.currentOptions || []).map(opt => opt.action));
+                        
+                        // 정규화된 확률 계산 (체크박스가 체크된 경우)
+                        let normalizedOptions = allOptions;
+                        if (showNormalizedProbability) {
+                          const availableOptions = allOptions.filter(opt => opt.isAvailable);
+                          const totalProbability = availableOptions.reduce((sum, opt) => sum + opt.probability, 0);
+                          
+                          normalizedOptions = allOptions.map(opt => ({
+                            ...opt,
+                            displayProbability: opt.isAvailable ? (opt.probability / totalProbability) : 0
+                          }));
+                        } else {
+                          normalizedOptions = allOptions.map(opt => ({
+                            ...opt,
+                            displayProbability: opt.probability
+                          }));
+                        }
                         
                         // 카테고리별로 옵션 분류
                         const categories = {
                           willpower: {
                             title: '의지력 효율',
-                            options: allOptions.filter(opt => opt.action.startsWith('willpower_'))
+                            options: normalizedOptions.filter(opt => opt.action.startsWith('willpower_'))
                           },
                           corePoint: {
                             title: '질서/혼돈 포인트', 
-                            options: allOptions.filter(opt => opt.action.startsWith('corePoint_'))
+                            options: normalizedOptions.filter(opt => opt.action.startsWith('corePoint_'))
                           },
                           effect1: {
                             title: processingGem.effect1?.name || '첫번째 효과',
-                            options: allOptions.filter(opt => opt.action.startsWith('effect1_'))
+                            options: normalizedOptions.filter(opt => opt.action.startsWith('effect1_'))
                           },
                           effect2: {
                             title: processingGem.effect2?.name || '두번째 효과', 
-                            options: allOptions.filter(opt => opt.action.startsWith('effect2_'))
+                            options: normalizedOptions.filter(opt => opt.action.startsWith('effect2_'))
                           },
                           etc: {
                             title: '기타',
-                            options: allOptions.filter(opt => 
+                            options: normalizedOptions.filter(opt => 
                               opt.action.startsWith('cost_') || 
                               opt.action.startsWith('reroll_') || 
                               opt.action === 'maintain'
@@ -1080,29 +1240,32 @@ function App() {
                               <div key={categoryIndex} className="option-category">
                                 <div className="category-title">{category.title}</div>
                                 <div className="category-options">
-                                  {category.options.map((option, index) => (
-                                    <div 
-                                      key={index} 
-                                      className={`compact-option ${option.isAvailable ? 'available' : 'disabled'}`}
-                                    >
-                                      <div className="compact-option-name">
-                                        {(() => {
-                                          let desc = option.description;
-                                          // 실제 효과 이름으로 교체
-                                          if (processingGem.effect1?.name) {
-                                            desc = desc.replace(/첫번째 효과/g, processingGem.effect1.name);
-                                          }
-                                          if (processingGem.effect2?.name) {
-                                            desc = desc.replace(/두번째 효과/g, processingGem.effect2.name);
-                                          }
-                                          return desc.replace(/Lv\.|증가|감소|포인트|상태|보기/g, '').trim();
-                                        })()}({(option.probability * 100).toFixed(2)}%)
+                                  {category.options.map((option, index) => {
+                                    const isSelected = selectedActions.has(option.action);
+                                    return (
+                                      <div 
+                                        key={index} 
+                                        className={`compact-option ${option.isAvailable ? 'available' : 'disabled'} ${isSelected ? 'selected' : ''}`}
+                                      >
+                                        <div className="compact-option-name">
+                                          {(() => {
+                                            let desc = option.description;
+                                            // 실제 효과 이름으로 교체
+                                            if (processingGem.effect1?.name) {
+                                              desc = desc.replace(/첫번째 효과/g, processingGem.effect1.name);
+                                            }
+                                            if (processingGem.effect2?.name) {
+                                              desc = desc.replace(/두번째 효과/g, processingGem.effect2.name);
+                                            }
+                                            return desc.replace(/Lv\.|증가|감소|포인트|상태|보기/g, '').trim();
+                                          })()}({(option.displayProbability * 100).toFixed(2)}%)
+                                        </div>
+                                        <div className="compact-option-status">
+                                          {option.isAvailable ? '✓' : '✗'}
+                                        </div>
                                       </div>
-                                      <div className="compact-option-status">
-                                        {option.isAvailable ? '✓' : '✗'}
-                                      </div>
-                                    </div>
-                                  ))}
+                                    );
+                                  })}
                                 </div>
                               </div>
                             ))}
@@ -1145,12 +1308,11 @@ function App() {
                     {/* 다른 항목 보기 버튼 */}
                     <button
                       className="reroll-btn"
-                      disabled={processingGem.processingCount === 0 || processingGem.currentRerollAttempts === 0}
+                      disabled={processingGem.processingCount === 0 || processingGem.currentRerollAttempts === 0 || processingGem.remainingAttempts === 0}
                       onClick={() => {
                         const result = rerollProcessingOptions(processingGem);
                         if (result) {
-                          setProcessingGem(result.gem);
-                          setProcessingOptions(result.options);
+                          setProcessingGem(result);
                         }
                       }}
                     >
@@ -1158,8 +1320,8 @@ function App() {
                     </button>
                   </div>
                   <div className="options-display">
-                    {processingOptions.length > 0 && processingGem.remainingAttempts > 0 ? (
-                      processingOptions.map((option, index) => (
+                    {(processingGem.currentOptions || []).length > 0 && processingGem.remainingAttempts > 0 ? (
+                      (processingGem.currentOptions || []).map((option, index) => (
                         <div
                           key={index}
                           className="option-display"
@@ -1177,15 +1339,97 @@ function App() {
                               return desc;
                             })()}
                           </div>
-                          <div className="option-probability">{(option.probability * 100).toFixed(1)}%</div>
                         </div>
                       ))
                     ) : (
                       <div className="no-options-message">
-                        가공이 완료되었습니다
+                        가공 완료
                       </div>
                     )}
                   </div>
+                </div>
+                
+                {/* 목표 확률 표시 */}
+                <div className="target-probabilities-section">
+                  <div className="probability-header">
+                    <h4>🎯 목표 달성 확률</h4>
+                    <div className="threshold-control">
+                      <label>
+                        리롤 임계값:
+                        <input
+                          type="number"
+                          value={manualRerollThreshold}
+                          onChange={(e) => setManualRerollThreshold(Number(e.target.value))}
+                          min="-1"
+                          max="4"
+                          step="0.25"
+                          style={{ width: '60px', marginLeft: '5px' }}
+                        />
+                      </label>
+                      <span className="threshold-hint">
+                        (평균 값 ≤ {manualRerollThreshold}일 때 리롤)
+                      </span>
+                    </div>
+                  </div>
+                  
+                  {targetProbabilities ? (
+                    <div className="probability-grid">
+                      {(() => {
+                        const cumulativeProbs = calculateCumulativeProbabilities(targetProbabilities.probabilities);
+                        
+                        const targetElements = targetGoals.map(target => {
+                          const [w, c] = target.split('/').map(Number);
+                          const cumulativeProb = cumulativeProbs[target] || 0;
+                          const isGood = w + c >= 8;
+                          
+                          return (
+                            <div 
+                              key={target} 
+                              className={`probability-target ${isGood ? 'good' : ''}`}
+                            >
+                              <div className="target-label">{target}+</div>
+                              <div className="target-probability">
+                                {(cumulativeProb * 100).toFixed(2)}%
+                              </div>
+                            </div>
+                          );
+                        });
+                        
+                        const sumElements = sumTargets.map(sumTarget => {
+                          const prob = targetProbabilities.probabilities[sumTarget.key] || 0;
+                          
+                          return (
+                            <div 
+                              key={sumTarget.key} 
+                              className="probability-target sum-target"
+                            >
+                              <div className="target-label">{sumTarget.label}</div>
+                              <div className="target-probability">
+                                {(prob * 100).toFixed(2)}%
+                              </div>
+                            </div>
+                          );
+                        });
+                        
+                        return [...targetElements, ...sumElements];
+                      })()}
+                      <div className="probability-status">
+                        {isCalculatingProbabilities ? (
+                          <span className="calculating">
+                            계산 중... ({targetProbabilities.completedSimulations}/{targetProbabilities.totalSimulations})
+                          </span>
+                        ) : (
+                          <span className="completed">
+                            완료 ({targetProbabilities.completedSimulations}회 시뮬레이션)
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="no-probabilities">
+                      가공이 완료되었거나 계산할 수 없습니다.
+                    </div>
+                  )}
                 </div>
                 
                 {/* 가공하기 버튼 / 완료 메시지 */}
@@ -1194,10 +1438,10 @@ function App() {
                     <button
                       className="btn btn-primary processing-btn"
                       onClick={() => {
-                        if (processingOptions.length > 0) {
+                        if ((processingGem.currentOptions || []).length > 0) {
                           // 4개 옵션 중 랜덤 선택 (25% 확률)
-                          const randomIndex = Math.floor(Math.random() * processingOptions.length);
-                          const selectedOption = processingOptions[randomIndex];
+                          const randomIndex = Math.floor(Math.random() * processingGem.currentOptions.length);
+                          const selectedOption = processingGem.currentOptions[randomIndex];
                           const selectedAction = selectedOption.action;
                           
                           // 선택된 옵션 정보 저장
@@ -1209,14 +1453,9 @@ function App() {
                           const newGem = executeGemProcessing(processingGem, selectedAction);
                           setProcessingGem(newGem);
                           setProcessingHistory([...processingHistory, newGem]);
-                          if (newGem.remainingAttempts > 0) {
-                            setProcessingOptions(processGem(newGem));
-                          } else {
-                            setProcessingOptions([]);
-                          }
                         }
                       }}
-                      disabled={processingOptions.length === 0}
+                      disabled={(processingGem.currentOptions || []).length === 0}
                     >
                       ⚒️ 가공하기
                     </button>
@@ -1236,7 +1475,6 @@ function App() {
                         // 같은 젬을 처음부터 다시 가공
                         const resetGem = createProcessingGem(processingGem.mainType, processingGem.subType, processingGem.grade);
                         setProcessingGem(resetGem);
-                        setProcessingOptions(processGem(resetGem));
                         setProcessingHistory([resetGem]);
                         setLastProcessingResult(null);
                       }}
@@ -1247,12 +1485,11 @@ function App() {
                       className="btn btn-reset"
                       onClick={() => {
                         setProcessingGem(null);
-                        setProcessingOptions([]);
                         setProcessingHistory([]);
                         setLastProcessingResult(null);
                       }}
                     >
-                      🆕 새로운 젬 선택
+                      🆕 돌아가기
                     </button>
                   </div>
                 </div>

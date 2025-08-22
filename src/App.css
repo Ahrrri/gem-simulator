@@ -850,6 +850,7 @@
 }
 
 .gem-card.processing {
+  width: 150px;
   max-width: 500px;
   margin: 0 auto;
   padding: 1.5rem;
@@ -1022,7 +1023,6 @@
   font-size: 0.9rem;
   font-weight: 600;
   color: #333;
-  margin-bottom: 0.5rem;
 }
 
 .option-probability {
@@ -1036,7 +1036,7 @@
   display: flex;
   justify-content: center;
   align-items: center;
-  padding: 2rem;
+  padding: 4px;
   color: #6c757d;
   font-size: 0.9rem;
   font-style: italic;
@@ -1103,6 +1103,8 @@
   overflow: hidden;
   background: white;
   border: 1px solid #e9ecef;
+  width: 180px;
+  min-width: 180px;
 }
 
 .category-title {
@@ -1119,7 +1121,8 @@
   display: flex;
   flex-direction: column;
   gap: 0.1rem;
-  padding: 0.3rem;
+  width: 100%;
+  min-height: 80px;
 }
 
 .compact-option {
@@ -1129,7 +1132,7 @@
   padding: 0.25rem 0.5rem;
   border-radius: 4px;
   font-size: 0.7rem;
-  transition: all 0.2s ease;
+  height: 20px;
 }
 
 .compact-option.available {
@@ -1141,6 +1144,151 @@
   background: rgba(220, 53, 69, 0.1);
   border-left: 3px solid #dc3545;
   opacity: 0.6;
+}
+
+.compact-option.selected {
+  border: 3px solid #1976d2 !important;
+  height: 14px;
+  border-left: 3px solid #1976d2 !important;
+  box-shadow: 0 0 8px rgba(25, 118, 210, 0.3);
+  background: linear-gradient(135deg, rgba(25, 118, 210, 0.1), rgba(25, 118, 210, 0.05)) !important;
+}
+
+.compact-option.selected.available {
+  background: linear-gradient(135deg, rgba(25, 118, 210, 0.15), rgba(40, 167, 69, 0.1)) !important;
+}
+
+/* Target Probabilities Section */
+.target-probabilities-section {
+  background: #f8f9fa;
+  padding: 1rem;
+  padding-bottom: 0;
+  border-radius: 8px;
+  border: 1px solid #dee2e6;
+  margin-top: 1rem;
+}
+
+.probability-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.probability-header h4 {
+  margin: 0;
+  color: #495057;
+  font-size: 1rem;
+}
+
+.threshold-control {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.threshold-control label {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: #6c757d;
+}
+
+.threshold-control input {
+  padding: 0.2rem;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  font-size: 0.8rem;
+}
+
+.threshold-hint {
+  color: #6c757d;
+  font-style: italic;
+  font-size: 0.75rem;
+}
+
+.probability-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+  gap: 0.5rem;
+  align-items: start;
+}
+
+.probability-target {
+  background: white;
+  padding: 0.5rem;
+  border-radius: 6px;
+  border: 2px solid #e9ecef;
+  text-align: center;
+  transition: all 0.2s ease;
+}
+
+.probability-target.good {
+  border-color: #28a745;
+  background: rgba(40, 167, 69, 0.1);
+}
+
+.probability-target.sum-target {
+  border-color: #667eea;
+  background: rgba(102, 126, 234, 0.1);
+}
+
+.target-label {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: #495057;
+  margin-bottom: 0.25rem;
+}
+
+.target-probability {
+  font-size: 1.1rem;
+  font-weight: bold;
+  color: #667eea;
+}
+
+.probability-target.good .target-probability {
+  color: #28a745;
+}
+
+.probability-target.sum-target .target-probability {
+  color: #667eea;
+}
+
+.probability-status {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 0.5rem;
+}
+
+.calculating {
+  color: #667eea;
+  font-weight: 500;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.completed {
+  color: #28a745;
+  font-weight: 500;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+.no-probabilities {
+  text-align: center;
+  color: #6c757d;
+  font-style: italic;
+  padding: 1rem;
+}
+
+.compact-option.selected.disabled {
+  background: linear-gradient(135deg, rgba(25, 118, 210, 0.1), rgba(220, 53, 69, 0.1)) !important;
+  opacity: 0.8;
 }
 
 .compact-option-name {
@@ -1465,6 +1613,27 @@
   .simulation-buttons {
     flex-direction: column;
   }
+}
+
+/* 가공 옵션 상태 헤더 */
+.options-status-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.probability-checkbox {
+  font-size: 0.75rem;
+  color: #6c757d;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  cursor: pointer;
+}
+
+.probability-checkbox input {
+  margin: 0;
 }
 
 /* 차수별 옵션 값 통계 */

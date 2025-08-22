@@ -253,7 +253,8 @@ export function fuseGems(materials) {
     effect2: {
       name: effects.effect2,
       level: pointDistribution.effect2
-    }
+    },
+    goldSpent: 500 // 융합 비용 고정
   };
   
   return resultGem;
@@ -269,10 +270,17 @@ export function getFusionProbabilities(materials) {
 export function calculateStatistics(results) {
   const stats = {
     totalRuns: results.length,
+    totalGoldSpent: results.length * 500, // 융합당 500골드 고정
+    averageGoldSpent: 500, // 융합당 평균 골드 (고정)
     gradeDistribution: {
       LEGENDARY: 0,
       RELIC: 0,
       ANCIENT: 0
+    },
+    gradeGoldAverage: {
+      LEGENDARY: 500,  // 융합은 고정 비용
+      RELIC: 500,
+      ANCIENT: 500
     },
     perfectGems: 0,  // 의지력 효율 5, 코어 포인트 5
     averagePoints: 0,

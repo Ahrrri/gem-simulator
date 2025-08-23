@@ -1,0 +1,84 @@
+/* Result Section */
+.result-section {
+  background: white;
+  padding: 2rem;
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+}
+
+.result-section h2 {
+  color: #333;
+  margin-bottom: 1.5rem;
+}
+
+.result-card {
+  padding: 1.5rem;
+  border-radius: 8px;
+  border: 3px solid #ddd;
+  position: relative;
+  overflow: hidden;
+}
+
+.result-card.legendary {
+  background: linear-gradient(135deg, #fff4e6 0%, #ffe4cc 100%);
+  border-color: #ff8c00;
+}
+
+.result-card.relic {
+  background: linear-gradient(135deg, #ffe6ec 0%, #ffccd8 100%);
+  border-color: #dc143c;
+}
+
+.result-card.ancient {
+  background: linear-gradient(135deg, #f0f0f0 0%, #e0e0e0 100%);
+  border-color: #808080;
+}
+
+.result-grade {
+  font-size: 1.5rem;
+  font-weight: bold;
+  margin-bottom: 0.5rem;
+}
+
+.result-type {
+  font-size: 1.1rem;
+  color: #666;
+  margin-bottom: 1.5rem;
+}
+
+.result-points {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  text-align: left;
+}
+
+.point-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.5rem;
+  background: rgba(255, 255, 255, 0.8);
+  border-radius: 4px;
+}
+
+.point-label {
+  color: #666;
+  font-weight: 500;
+}
+
+.point-value {
+  font-weight: bold;
+  color: #333;
+}
+
+.point-value.max {
+  color: #27ae60;
+  text-shadow: 0 0 10px rgba(39, 174, 96, 0.3);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .result-points {
+    grid-template-columns: 1fr;
+  }
+}

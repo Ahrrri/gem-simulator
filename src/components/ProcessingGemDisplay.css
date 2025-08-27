@@ -144,6 +144,61 @@
   gap: 0.5rem;
 }
 
+.options-controls {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.mode-toggle {
+  font-size: 0.9rem;
+}
+
+.mode-toggle label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #555;
+  cursor: pointer;
+}
+
+.mode-toggle input[type="checkbox"] {
+  margin: 0;
+}
+
+/* Manual mode toggle next to button */
+.manual-mode-toggle {
+  display: flex;
+  align-items: center;
+  margin-right: 1rem;
+}
+
+.manual-mode-toggle label {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: #555;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.manual-mode-toggle input[type="checkbox"] {
+  margin: 0;
+}
+
+/* Clickable options in status panel */
+.compact-option.clickable {
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.compact-option.clickable:hover {
+  background-color: #e3f2fd;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+
 .processing-options h3 {
   color: #555;
   font-size: 1.1rem;
@@ -193,11 +248,44 @@
   background: white;
   text-align: center;
   transition: all 0.3s ease;
+  position: relative;
 }
 
 .option-display:hover {
   border-color: #ccc;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.option-display.clickable {
+  cursor: pointer;
+}
+
+.option-display.clickable:hover {
+  border-color: #667eea;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.2);
+  transform: translateY(-1px);
+}
+
+.option-display.selected {
+  border-color: #28a745;
+  background: rgba(40, 167, 69, 0.1);
+  box-shadow: 0 0 10px rgba(40, 167, 69, 0.3);
+}
+
+.option-selector {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  background: #28a745;
+  color: white;
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  font-weight: bold;
 }
 
 .option-description {
@@ -231,6 +319,20 @@
   display: flex;
   justify-content: center;
   margin-top: 1rem;
+}
+
+.processing-buttons {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.selection-hint {
+  font-size: 0.85rem;
+  color: #667eea;
+  font-weight: 500;
+  animation: pulse 2s ease-in-out infinite;
 }
 
 .processing-btn {
@@ -656,9 +758,9 @@
 }
 
 .result-value {
-  font-size: 0.9rem;
-  color: #495057;
-  font-weight: 600;
+  font-size: 0.75rem;
+  color: #6c757d;
+  font-weight: 500;
 }
 
 .result-option .result-value {
@@ -667,6 +769,284 @@
 
 .result-probability .result-value {
   color: #667eea;
+}
+
+.processing-result-type {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.result-value.manual {
+  color: #e74c3c;
+  font-weight: bold;
+}
+
+.result-value.auto {
+  color: #667eea;
+}
+
+/* Probability Table */
+.probability-table-section {
+  margin: 1.5rem 0;
+  position: relative;
+  z-index: 1;
+}
+
+.probability-table {
+  margin-top: 1rem;
+  overflow: visible;
+}
+
+.comparison-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: white;
+  border-radius: 8px;
+  overflow: visible;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.comparison-table th {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 8px 6px;
+}
+
+.comparison-table td {
+  padding: 6px 4px;
+}
+
+/* 확률 내용 컨테이너 */
+.prob-content {
+  display: flex;
+  flex-direction: column;
+}
+
+.prob-main {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: center;
+  position: relative;
+}
+
+.prob-main.has-details {
+  cursor: pointer;
+}
+
+.prob-note {
+  font-size: 0.75em;
+  color: #6c757d;
+  font-weight: normal;
+}
+
+/* 호버 툴팁 스타일 */
+.prob-tooltip {
+  position: absolute;
+  top: 50%;
+  left: 75%;
+  transform: translateY(-50%);
+  margin-left: 8px;
+  background: white;
+  border: 2px solid #007bff;
+  border-radius: 8px;
+  padding: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 9999;
+  min-width: 220px;
+  opacity: 0;
+  visibility: hidden;
+  transition: all 0.2s ease;
+  pointer-events: none;
+}
+
+.prob-main:hover .prob-tooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(-50%);
+}
+
+/* 툴팁 화살표 */
+.prob-tooltip::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: -8px;
+  transform: translateY(-50%);
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 6px 8px 6px 0;
+  border-color: transparent #007bff transparent transparent;
+}
+
+.prob-tooltip::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: -6px;
+  transform: translateY(-50%);
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 5px 7px 5px 0;
+  border-color: transparent white transparent transparent;
+}
+
+.tooltip-title {
+  font-size: 0.9em;
+  font-weight: 600;
+  color: #495057;
+  margin-bottom: 6px;
+  border-bottom: 1px solid #dee2e6;
+  padding-bottom: 3px;
+}
+
+.tooltip-option {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 3px 0;
+  font-size: 0.9em;
+  line-height: 1.3;
+}
+
+.tooltip-option:not(:last-child) {
+  border-bottom: 1px solid #f8f9fa;
+}
+
+.tooltip-option-name {
+  color: #495057;
+  font-weight: 500;
+  flex: 1;
+  margin-right: 8px;
+}
+
+.tooltip-option-prob {
+  color: #007bff;
+  font-weight: 600;
+  min-width: 50px;
+  text-align: right;
+}
+
+.calc-needed {
+  color: #6c757d;
+  font-style: italic;
+  font-weight: normal;
+  font-size: 0.85em;
+}
+
+.option-name {
+  color: #495057;
+  font-weight: 500;
+}
+
+.option-value {
+  color: #007bff;
+  font-weight: 600;
+  text-align: center;
+  font-size: 0.8rem;
+}
+
+.comparison-table th.target-column {
+  width: 25%;
+  text-align: left;
+  padding-left: 16px;
+}
+
+.comparison-table th.current-column,
+.comparison-table th.reroll-column,
+.comparison-table th.fixed-column {
+  width: 25%;
+}
+
+.comparison-table td {
+  padding: 10px 8px;
+  border-bottom: 1px solid #f1f3f4;
+  text-align: center;
+  font-size: 0.9rem;
+}
+
+.comparison-table td.target-name {
+  text-align: left;
+  padding-left: 16px;
+  font-weight: 500;
+  color: #495057;
+}
+
+.comparison-table tr.good-target td.target-name {
+  color: #28a745;
+  font-weight: 600;
+}
+
+.comparison-table tr {
+  overflow: visible;
+}
+
+.comparison-table tr:hover {
+  background-color: #f8f9fa;
+}
+
+.prob-cell {
+  position: relative;
+  overflow: visible;
+}
+
+.prob-cell.highest {
+  background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%) !important;
+  border: 2px solid #f39c12 !important;
+  position: relative;
+  animation: highlight-pulse 2s ease-in-out infinite;
+}
+
+@keyframes highlight-pulse {
+  0%, 100% { 
+    box-shadow: 0 2px 8px rgba(243, 156, 18, 0.3);
+  }
+  50% { 
+    box-shadow: 0 4px 16px rgba(243, 156, 18, 0.6);
+  }
+}
+
+.prob-value {
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background-color: #e9ecef;
+  color: #495057;
+  font-weight: 500;
+}
+
+.prob-value.better {
+  background-color: #d1ecf1;
+  color: #0c5460;
+}
+
+.better-indicator {
+  margin-left: 4px;
+  color: #28a745;
+  font-weight: bold;
+}
+
+.prob-unavailable {
+  color: #6c757d;
+  font-style: italic;
+}
+
+.table-status {
+  margin-top: 0.5rem;
+  text-align: center;
+  font-size: 0.85rem;
+  color: #6c757d;
+}
+
+.table-status .calculating {
+  color: #667eea;
+}
+
+.table-status .completed {
+  color: #28a745;
 }
 
 /* Processing Controls */
@@ -700,9 +1080,83 @@
 /* 가공 옵션 상태 헤더 */
 .options-status-header {
   display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 0.75rem;
+}
+
+.header-controls {
+  display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 0.75rem;
+  gap: 10px;
+}
+
+.calc-prob-btn {
+  margin-right: 8px;
+  background: linear-gradient(45deg, #4CAF50, #45a049);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 4px rgba(76, 175, 80, 0.3);
+}
+
+.load-table-btn {
+  margin-right: 8px;
+  background: linear-gradient(45deg, #ffc107, #e0a800);
+  color: #212529;
+  border: none;
+  border-radius: 6px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 4px rgba(255, 193, 7, 0.3);
+}
+
+.load-table-btn:hover {
+  background: linear-gradient(45deg, #e0a800, #d39e00);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(255, 193, 7, 0.4);
+}
+
+.calc-prob-btn:disabled,
+.load-table-btn:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
+}
+
+/* 테이블 상태 표시 */
+.table-load-error {
+  margin: 10px 0;
+  padding: 8px 12px;
+  background: linear-gradient(135deg, #f8d7da, #f5c6cb);
+  border: 1px solid #dc3545;
+  border-radius: 6px;
+  font-size: 12px;
+  color: #721c24;
+}
+
+.table-loaded-info {
+  margin: 10px 0;
+  padding: 8px 12px;
+  background: linear-gradient(135deg, #d4edda, #c3e6cb);
+  border: 1px solid #28a745;
+  border-radius: 6px;
+  font-size: 12px;
+  color: #155724;
+}
+
+.stat-item {
+  color: #495057;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .probability-checkbox {

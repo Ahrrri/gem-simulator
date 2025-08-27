@@ -49,10 +49,21 @@ function ProcessingTab({
   setIsCalculatingRerollProbabilities,
   manualRerollThreshold,
   setManualRerollThreshold,
+  selectedOptions,
+  setSelectedOptions,
+  calculationProgress,
+  calculationStates,
+  
+  // 테이블 로드 관련 상태
+  isTableLoading,
+  isTableLoaded,
+  tableLoadError,
   
   // 함수들
   executeProcessingSimulation,
-  resetProcessingSimulation
+  resetProcessingSimulation,
+  calculateProbabilities,
+  loadProbabilityTable
 }) {
   return (
     <>
@@ -128,6 +139,15 @@ function ProcessingTab({
           isCalculatingRerollProbabilities={isCalculatingRerollProbabilities}
           manualRerollThreshold={manualRerollThreshold}
           setManualRerollThreshold={setManualRerollThreshold}
+          selectedOptions={selectedOptions}
+          setSelectedOptions={setSelectedOptions}
+          calculateProbabilities={calculateProbabilities}
+          calculationProgress={calculationProgress}
+          calculationStates={calculationStates}
+          isTableLoading={isTableLoading}
+          isTableLoaded={isTableLoaded}
+          tableLoadError={tableLoadError}
+          loadProbabilityTable={loadProbabilityTable}
         />
       )}
     </>

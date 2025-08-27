@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import './App.css';
 import { fuseGems, calculateStatistics } from './utils/gemFusion';
-import { rerollProcessingOptions, bulkProcessingSimulation, calculateProcessingStatistics, calculateTargetProbabilities, PROCESSING_STRATEGIES } from './utils/gemProcessing';
+import { rerollProcessingOptions, bulkProcessingSimulation, calculateProcessingStatistics, PROCESSING_STRATEGIES } from './utils/gemProcessing';
+import probabilityLoader from './utils/probabilityLoader';
 import FusionTab from './components/FusionTab';
 import ProcessingTab from './components/ProcessingTab';
 
@@ -47,6 +48,14 @@ function App() {
   const [isCalculatingProbabilities, setIsCalculatingProbabilities] = useState(false);
   const [isCalculatingRerollProbabilities, setIsCalculatingRerollProbabilities] = useState(false);
   const [manualRerollThreshold, setManualRerollThreshold] = useState(0);
+  const [selectedOptions, setSelectedOptions] = useState([]); // 수동 선택 옵션
+  const [calculationProgress, setCalculationProgress] = useState(0);
+  const [calculationStates, setCalculationStates] = useState(0);
+  
+  // 테이블 로드 관련 상태
+  const [isTableLoading, setIsTableLoading] = useState(false);
+  const [isTableLoaded, setIsTableLoaded] = useState(false);
+  const [tableLoadError, setTableLoadError] = useState(null);
   
   // 특정 결과 목표 리스트 (의지력 + 코어포인트 >= 8)
   const targetGoals = ['5/5', '5/4', '4/5', '5/3', '4/4', '3/5'];
@@ -58,144 +67,113 @@ function App() {
   ];
   
   
-  // 실시간 확률 계산 함수
-  const calculateRealTimeProbabilities = async (gem) => {
+  // 테이블 로드 함수
+  const loadProbabilityTable = async () => {
+    if (isTableLoaded || isTableLoading) return;
+    
+    setIsTableLoading(true);
+    setTableLoadError(null);
+    
+    try {
+      const success = await probabilityLoader.loadTable();
+      if (success) {
+        setIsTableLoaded(true);
+        setTableLoadError(null);
+      } else {
+        setTableLoadError('테이블 로드에 실패했습니다.');
+      }
+    } catch (error) {
+      setTableLoadError(error.message);
+    } finally {
+      setIsTableLoading(false);
+    }
+  };
+
+  // 실시간 확률 계산 함수 (사전 계산된 테이블 조회)
+  const calculateRealTimeProbabilities = (gem) => {
     if (!gem || gem.remainingAttempts === 0) {
       setTargetProbabilities(null);
       return;
     }
     
+    if (!isTableLoaded) {
+      console.warn('확률 테이블이 로드되지 않았습니다.');
+      return;
+    }
+    
     setIsCalculatingProbabilities(true);
     
-    // 백그라운드에서 점진적으로 계산
-    const batchSize = 5000;
-    const totalSimulations = 50000;
-    let completedSimulations = 0;
-    const targetCounts = {};
-    const sumCounts = {};
+    // 사전 계산된 테이블에서 즉시 조회
+    const exactProbs = probabilityLoader.getProbabilities(gem);
     
-    targetGoals.forEach(target => targetCounts[target] = 0);
-    sumTargets.forEach(sumTarget => sumCounts[sumTarget.key] = 0);
-    
-    for (let i = 0; i < totalSimulations; i += batchSize) {
-      const currentBatchSize = Math.min(batchSize, totalSimulations - i);
-      
-      // 배치 단위로 시뮬레이션 실행
-      for (let j = 0; j < currentBatchSize; j++) {
-        const gemCopy = JSON.parse(JSON.stringify(gem));
-        const result = calculateTargetProbabilities(gemCopy, targetGoals, 1, PROCESSING_STRATEGIES.THRESHOLD_REROLL, manualRerollThreshold);
-        
-        // 시뮬레이션 결과에서 실제 젬 정보 가져오기
-        
-        // 각 목표에 대해 달성 여부 확인
-        targetGoals.forEach(target => {
-          if (result.probabilities[target] > 0) {
-            targetCounts[target]++;
-          }
-        });
-        
-        // 합 기준 목표 확인 (시뮬레이션 결과의 의지력+코어포인트 합 계산 필요)
-        // 임시로 결과 확률에서 추정
-        const hasSum9Plus = result.probabilities['5/5'] > 0 || result.probabilities['5/4'] > 0 || result.probabilities['4/5'] > 0;
-        const hasSum8Plus = hasSum9Plus || result.probabilities['5/3'] > 0 || result.probabilities['4/4'] > 0 || result.probabilities['3/5'] > 0;
-        
-        if (hasSum9Plus) sumCounts['sum9+']++;
-        if (hasSum8Plus) sumCounts['sum8+']++;
-      }
-      
-      completedSimulations += currentBatchSize;
-      
-      // 중간 결과 업데이트
-      const currentProbabilities = {};
-      targetGoals.forEach(target => {
-        currentProbabilities[target] = targetCounts[target] / completedSimulations;
-      });
-      sumTargets.forEach(sumTarget => {
-        currentProbabilities[sumTarget.key] = sumCounts[sumTarget.key] / completedSimulations;
-      });
-      
-      setTargetProbabilities({
-        probabilities: currentProbabilities,
-        completedSimulations,
-        totalSimulations
-      });
-      
-      // UI 업데이트를 위한 짧은 대기
-      await new Promise(resolve => setTimeout(resolve, 10));
+    if (!exactProbs) {
+      setIsCalculatingProbabilities(false);
+      return;
     }
+    
+    // UI에 표시할 형식으로 변환
+    const probabilities = {};
+    const sumProbabilities = {};
+    
+    // 기존 목표들
+    targetGoals.forEach(target => {
+      probabilities[target] = exactProbs.current[target] || 0;
+    });
+    
+    // 합 목표들
+    sumTargets.forEach(target => {
+      sumProbabilities[target.key] = exactProbs.current[target.key] || 0;
+    });
+    
+    // 새로운 목표들 (유물+, 고대+)
+    sumProbabilities['relic+'] = exactProbs.current['relic+'] || 0;
+    sumProbabilities['ancient+'] = exactProbs.current['ancient+'] || 0;
+    
+    setTargetProbabilities({
+      probabilities: probabilities,
+      sumProbabilities: sumProbabilities,
+      exactProbabilities: exactProbs,
+      totalSimulations: 'exact',
+      completedSimulations: 'exact'
+    });
     
     setIsCalculatingProbabilities(false);
   };
 
-  // 리롤 후 확률 계산 함수
-  const calculateRerollProbabilities = async (gem) => {
-    if (!gem || gem.remainingAttempts === 0 || gem.currentRerollAttempts === 0 || gem.processingCount === 0) {
-      setRerollProbabilities(null);
-      return;
-    }
-    
-    setIsCalculatingRerollProbabilities(true);
-    
-    // 백그라운드에서 점진적으로 계산
-    const batchSize = 5000;
-    const totalSimulations = 50000;
-    let completedSimulations = 0;
-    const targetCounts = {};
-    const sumCounts = {};
-    
-    targetGoals.forEach(target => targetCounts[target] = 0);
-    sumTargets.forEach(sumTarget => sumCounts[sumTarget.key] = 0);
-    
-    for (let i = 0; i < totalSimulations; i += batchSize) {
-      const currentBatchSize = Math.min(batchSize, totalSimulations - i);
+
+  // 리롤 후 확률 계산 함수 (이미 probabilityTable에서 계산됨)
+  const calculateRerollProbabilities = (gem) => {
+    // targetProbabilities에 이미 리롤 확률이 포함되어 있으므로
+    // 별도로 계산할 필요 없음
+    if (targetProbabilities && targetProbabilities.exactProbabilities && targetProbabilities.exactProbabilities.afterReroll) {
+      const rerollProbs = targetProbabilities.exactProbabilities.afterReroll;
       
-      // 배치 단위로 시뮬레이션 실행
-      for (let j = 0; j < currentBatchSize; j++) {
-        const gemCopy = JSON.parse(JSON.stringify(gem));
-        
-        // 리롤 실행
-        const rerolledGem = rerollProcessingOptions(gemCopy);
-        if (!rerolledGem) continue;
-        
-        const result = calculateTargetProbabilities(rerolledGem, targetGoals, 1, PROCESSING_STRATEGIES.THRESHOLD_REROLL, manualRerollThreshold);
-        
-        // 각 목표에 대해 달성 여부 확인
-        targetGoals.forEach(target => {
-          if (result.probabilities[target] > 0) {
-            targetCounts[target]++;
-          }
-        });
-        
-        // 합 기준 목표 확인
-        const hasSum9Plus = result.probabilities['5/5'] > 0 || result.probabilities['5/4'] > 0 || result.probabilities['4/5'] > 0;
-        const hasSum8Plus = hasSum9Plus || result.probabilities['5/3'] > 0 || result.probabilities['4/4'] > 0 || result.probabilities['3/5'] > 0;
-        
-        if (hasSum9Plus) sumCounts['sum9+']++;
-        if (hasSum8Plus) sumCounts['sum8+']++;
-      }
+      const probabilities = {};
+      const sumProbabilities = {};
       
-      completedSimulations += currentBatchSize;
-      
-      // 중간 결과 업데이트
-      const currentProbabilities = {};
+      // 기존 목표들
       targetGoals.forEach(target => {
-        currentProbabilities[target] = targetCounts[target] / completedSimulations;
+        probabilities[target] = rerollProbs[target] || 0;
       });
-      sumTargets.forEach(sumTarget => {
-        currentProbabilities[sumTarget.key] = sumCounts[sumTarget.key] / completedSimulations;
+      
+      // 합 목표들
+      sumTargets.forEach(target => {
+        sumProbabilities[target.key] = rerollProbs[target.key] || 0;
       });
+      
+      // 새로운 목표들
+      sumProbabilities['relic+'] = rerollProbs['relic+'] || 0;
+      sumProbabilities['ancient+'] = rerollProbs['ancient+'] || 0;
       
       setRerollProbabilities({
-        probabilities: currentProbabilities,
-        completedSimulations,
-        totalSimulations
+        probabilities: probabilities,
+        sumProbabilities: sumProbabilities,
+        totalSimulations: 'exact',
+        completedSimulations: 'exact'
       });
-      
-      // UI 업데이트를 위한 짧은 대기
-      await new Promise(resolve => setTimeout(resolve, 10));
+    } else {
+      setRerollProbabilities(null);
     }
-    
-    setIsCalculatingRerollProbabilities(false);
   };
 
 
@@ -307,22 +285,43 @@ function App() {
     setProcessingStatistics(null);
   };
 
-
-
-
-
-
-
-  // 젬 상태가 변경될 때마다 확률 계산
+  // 젬이 변경되거나 완료되면 확률 초기화
   useEffect(() => {
-    if (processingGem && processingGem.remainingAttempts > 0) {
-      calculateRealTimeProbabilities(processingGem);
-      calculateRerollProbabilities(processingGem);
-    } else {
+    if (!processingGem || processingGem.remainingAttempts === 0) {
       setTargetProbabilities(null);
       setRerollProbabilities(null);
     }
-  }, [processingGem, manualRerollThreshold]);
+  }, [processingGem]);
+
+  // 선택된 옵션이 변경되면 선택지 기반 확률만 초기화
+  useEffect(() => {
+    if (processingGem && processingGem.remainingAttempts > 0 && targetProbabilities) {
+      // 기존 확률은 유지하되, withCurrentOptions만 제거
+      setTargetProbabilities(prev => ({
+        ...prev,
+        exactProbabilities: prev.exactProbabilities ? {
+          ...prev.exactProbabilities,
+          withCurrentOptions: null
+        } : null
+      }));
+    }
+  }, [selectedOptions]);
+
+  // 확률 계산 함수 (옵션에 따라 다르게 계산)
+  const calculateProbabilities = () => {
+    if (processingGem && processingGem.remainingAttempts > 0) {
+      if (selectedOptions.length === 4) {
+        // 수동 옵션 4개가 선택된 경우
+        const gemForCalculation = { ...processingGem, currentOptions: selectedOptions };
+        calculateRealTimeProbabilities(gemForCalculation);
+        calculateRerollProbabilities(gemForCalculation);
+      } else {
+        // 일반적인 경우
+        calculateRealTimeProbabilities(processingGem);
+        calculateRerollProbabilities(processingGem);
+      }
+    }
+  };
 
   return (
     <div className="App">
@@ -419,10 +418,21 @@ function App() {
             setIsCalculatingRerollProbabilities={setIsCalculatingRerollProbabilities}
             manualRerollThreshold={manualRerollThreshold}
             setManualRerollThreshold={setManualRerollThreshold}
+            selectedOptions={selectedOptions}
+            setSelectedOptions={setSelectedOptions}
+            calculationProgress={calculationProgress}
+            calculationStates={calculationStates}
+            
+            // 테이블 로드 관련 상태
+            isTableLoading={isTableLoading}
+            isTableLoaded={isTableLoaded}
+            tableLoadError={tableLoadError}
             
             // 함수들
             executeProcessingSimulation={executeProcessingSimulation}
             resetProcessingSimulation={resetProcessingSimulation}
+            calculateProbabilities={calculateProbabilities}
+            loadProbabilityTable={loadProbabilityTable}
           />
         )}
       </div>

@@ -616,34 +616,176 @@ function determineGradeByPoints(totalPoints) {
   return 'LEGENDARY';
 }
 
-// 특정 젬 상태에서 목표 달성 확률 계산 (몬테 카를로 시뮬레이션)
-export function calculateTargetProbabilities(currentGem, targets, simulationCount = 1000, strategy = PROCESSING_STRATEGIES.THRESHOLD_REROLL, threshold = 0) {
-  const results = [];
-  const strategyParams = { threshold };
-  
-  for (let i = 0; i < simulationCount; i++) {
-    // 현재 젬 상태를 복사해서 시뮬레이션 시작
-    const gemCopy = JSON.parse(JSON.stringify(currentGem));
-    const result = simulateProcessing(gemCopy, false, strategy, strategyParams);
-    results.push(result.finalGem);
+// 특정 옵션이 사용 가능한지 확인
+function isOptionAvailable(gem, action) {
+  const config = PROCESSING_POSSIBILITIES[action];
+  if (!config) return false;
+  return checkCondition(config.condition, gem);
+}
+
+// 재귀적 확률 계산 (정확한 값) - 동기 버전으로 복원
+export function calculateExactProbabilities(processingGem, memo = {}, progressCallback = null) {
+  // 목표 조건 정의
+  const targetConditions = {
+    '5/5': (gem) => gem.willpower >= 5 && gem.corePoint >= 5,
+    '5/4': (gem) => gem.willpower >= 5 && gem.corePoint >= 4,
+    '4/5': (gem) => gem.willpower >= 4 && gem.corePoint >= 5,
+    '5/3': (gem) => gem.willpower >= 5 && gem.corePoint >= 3,
+    '4/4': (gem) => gem.willpower >= 4 && gem.corePoint >= 4,
+    '3/5': (gem) => gem.willpower >= 3 && gem.corePoint >= 5,
+    'sum8+': (gem) => (gem.willpower + gem.corePoint) >= 8,
+    'sum9+': (gem) => (gem.willpower + gem.corePoint) >= 9,
+    'relic+': (gem) => {
+      const total = gem.willpower + gem.corePoint + gem.effect1.level + gem.effect2.level;
+      return total >= 16;
+    },
+    'ancient+': (gem) => {
+      const total = gem.willpower + gem.corePoint + gem.effect1.level + gem.effect2.level;
+      return total >= 19;
+    }
+  };
+
+  // 진행률 추적을 위한 변수들
+  let totalStatesCalculated = 0;
+  let cacheHits = 0;
+  const startTime = Date.now();
+
+  // 상태를 키로 변환
+  const stateToKey = (gem) => {
+    return `${gem.willpower},${gem.corePoint},${gem.effect1.level},${gem.effect2.level},${gem.remainingAttempts},${gem.currentRerollAttempts}`;
+  };
+
+  // 재귀 함수 (동기 버전)
+  function calculateFromState(gem, fixedOptions = null) {
+    const key = stateToKey(gem) + (fixedOptions ? ',fixed' : '');
+    
+    if (memo[key]) {
+      cacheHits++;
+      return memo[key];
+    }
+    
+    totalStatesCalculated++;
+
+    // 초기화
+    const result = {};
+    for (const target in targetConditions) {
+      result[target] = 0;
+    }
+
+    // 기저 사례: 남은 시도 횟수가 0
+    if (gem.remainingAttempts === 0) {
+      for (const target in targetConditions) {
+        result[target] = targetConditions[target](gem) ? 1.0 : 0.0;
+      }
+      memo[key] = result;
+      return result;
+    }
+
+    // 이미 모든 목표를 달성한 경우 - 최적화를 위해 제거 (각 목표가 다른 조건)
+
+    // 사용 가능한 옵션 가져오기
+    let optionsToUse;
+    if (fixedOptions) {
+      // 이미 선택된 4개 옵션이 있는 경우 (고정된 옵션)
+      optionsToUse = fixedOptions.filter(opt => isOptionAvailable(gem, opt.action));
+      if (optionsToUse.length === 0) {
+        for (const target in targetConditions) {
+          result[target] = targetConditions[target](gem) ? 1.0 : 0.0;
+        }
+        memo[key] = result;
+        return result;
+      }
+      
+      // 4개 중 균등하게 선택 (각각 1/n 확률)
+      const equalProb = 1.0 / optionsToUse.length;
+      for (const option of optionsToUse) {
+        const nextGem = executeGemProcessing({ ...gem }, option.action);
+        const futureProbs = calculateFromState(nextGem, null);
+        
+        for (const target in targetConditions) {
+          result[target] += equalProb * futureProbs[target];
+        }
+      }
+    } else {
+      // 새로운 4개 옵션을 뽑아야 하는 경우
+      // 모든 가능한 옵션 가져오기
+      const allAvailableOptions = generateProcessingOptions(gem);
+      
+      if (allAvailableOptions.length === 0) {
+        for (const target in targetConditions) {
+          result[target] = targetConditions[target](gem) ? 1.0 : 0.0;
+        }
+        memo[key] = result;
+        return result;
+      }
+      
+      // Es 함수와 유사한 방식: 가중치 기반 기댓값 계산
+      // 각 옵션이 선택될 때의 확률을 가중치로 사용
+      const totalProb = allAvailableOptions.reduce((sum, opt) => sum + opt.probability, 0);
+      
+      if (totalProb > 0) {
+        for (const option of allAvailableOptions) {
+          // 이 옵션의 가중치 비율
+          const optionWeight = option.probability / totalProb;
+          
+          const nextGem = executeGemProcessing({ ...gem }, option.action);
+          const futureProbs = calculateFromState(nextGem, null);
+          
+          for (const target in targetConditions) {
+            result[target] += optionWeight * futureProbs[target];
+          }
+        }
+      }
+    }
+
+    memo[key] = result;
+    return result;
   }
+
+  // 1. 현재 상태에서의 확률
+  const currentProbabilities = calculateFromState(processingGem);
+
+  // 2. 리롤 후 확률 (리롤 가능한 경우)
+  let rerollProbabilities = null;
+  if (processingGem.currentRerollAttempts > 0 && processingGem.remainingAttempts > 0) {
+    const rerolledGem = { ...processingGem };
+    rerolledGem.currentOptions = processGem(rerolledGem); // 4개만 선택
+    rerolledGem.currentRerollAttempts -= 1;
+    rerollProbabilities = calculateFromState(rerolledGem);
+  }
+
+  // 3. 현재 옵션만 사용했을 때의 확률
+  let fixedOptionsProbabilities = null;
+  if (processingGem.currentOptions && processingGem.currentOptions.length > 0) {
+    fixedOptionsProbabilities = calculateFromState(processingGem, processingGem.currentOptions);
+  }
+
+  // 계산 완료 후 통계 로그
+  const endTime = Date.now();
+  const elapsedTime = endTime - startTime;
   
-  // 각 목표에 대한 달성 확률 계산
-  const probabilities = {};
-  targets.forEach(target => {
-    const [targetW, targetC] = target.split('/').map(Number);
-    const achievedCount = results.filter(gem => 
-      gem.willpower === targetW && gem.corePoint === targetC
-    ).length;
-    probabilities[target] = achievedCount / simulationCount;
-  });
-  
+  if (progressCallback) {
+    progressCallback(100, {
+      totalStates: totalStatesCalculated,
+      cacheHits: cacheHits,
+      cacheHitRate: (cacheHits / (totalStatesCalculated + cacheHits) * 100).toFixed(1),
+      elapsedTime: elapsedTime,
+      completed: true
+    });
+  }
+
   return {
-    probabilities,
-    totalSimulations: simulationCount,
-    completedSimulations: results.length
+    current: currentProbabilities,
+    afterReroll: rerollProbabilities,
+    withCurrentOptions: fixedOptionsProbabilities,
+    stats: {
+      totalStates: totalStatesCalculated,
+      cacheHits: cacheHits,
+      elapsedTime: elapsedTime
+    }
   };
 }
+
 
 // 가공 시뮬레이션 통계 계산
 export function calculateProcessingStatistics(results) {

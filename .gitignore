@@ -22,3 +22,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+*progress_frames
+gem_calculation_progress.mp4
+probability_table.db
+probability_table.json

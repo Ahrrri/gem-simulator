@@ -1,5 +1,5 @@
 import './FusionStatistics.css';
-import { GEM_TYPES } from '../utils/gemFusion';
+import { GEM_TYPES } from '../utils/gemConstants';
 
 function FusionStatistics({ statistics, allResults, selectedCombo, setSelectedCombo }) {
   const getGradeName = (grade) => {

@@ -1,3 +1,34 @@
+/* Processing Gem Display */
+.processing-gem-display {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+/* Probability Table Controls */
+.probability-table-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+  padding: 10px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid #dee2e6;
+}
+
+.probability-table-controls h3 {
+  margin: 0;
+  color: #495057;
+  font-size: 1.1rem;
+}
+
+.controls-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 /* Processing Gem Section */
 .processing-gem-section {
   display: flex;

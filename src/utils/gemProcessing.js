@@ -1,48 +1,33 @@
 // 젬 가공 관련 확률 테이블 및 로직
+import { 
+  getEffectsForGem, 
+  PROCESSING_POSSIBILITIES, 
+  getActionDescription, 
+  applyGemAction,
+  calculateTotalPoints,
+  getAvailableProcessingOptions,
+  getOptionPointValue
+} from './gemConstants.js';
 
-// 젬 가공 가능성 확률 테이블 (HTML에서 추출)
-const PROCESSING_POSSIBILITIES = {
-  // 의지력 효율 관련
-  'willpower_+1': { probability: 0.1165, condition: 'willpower < 5' },
-  'willpower_+2': { probability: 0.0440, condition: 'willpower < 4' },
-  'willpower_+3': { probability: 0.0175, condition: 'willpower < 3' },
-  'willpower_+4': { probability: 0.0045, condition: 'willpower < 2' },
-  'willpower_-1': { probability: 0.0300, condition: 'willpower > 1' },
+// 옵션 변경 시 랜덤 효과 선택 (현재 활성화된 두 옵션과 다른 옵션 선택)
+export function selectRandomOptionForChange(mainType, subType, currentActiveOptions) {
+  const availableEffects = getEffectsForGem(mainType, subType);
+  if (availableEffects.length <= 2) return null; // 변경 불가능
   
-  // 질서/혼돈 포인트 관련
-  'corePoint_+1': { probability: 0.1165, condition: 'corePoint < 5' },
-  'corePoint_+2': { probability: 0.0440, condition: 'corePoint < 4' },
-  'corePoint_+3': { probability: 0.0175, condition: 'corePoint < 3' },
-  'corePoint_+4': { probability: 0.0045, condition: 'corePoint < 2' },
-  'corePoint_-1': { probability: 0.0300, condition: 'corePoint > 1' },
+  // 현재 활성화되지 않은 옵션들 중에서 선택
+  const inactiveIndexes = [];
+  for (let i = 0; i < availableEffects.length; i++) {
+    if (!currentActiveOptions.includes(i)) {
+      inactiveIndexes.push(i);
+    }
+  }
   
-  // 첫번째 효과 관련
-  'effect1_+1': { probability: 0.1165, condition: 'effect1 < 5' },
-  'effect1_+2': { probability: 0.0440, condition: 'effect1 < 4' },
-  'effect1_+3': { probability: 0.0175, condition: 'effect1 < 3' },
-  'effect1_+4': { probability: 0.0045, condition: 'effect1 < 2' },
-  'effect1_-1': { probability: 0.0300, condition: 'effect1 > 1' },
+  if (inactiveIndexes.length === 0) return null;
   
-  // 두번째 효과 관련
-  'effect2_+1': { probability: 0.1165, condition: 'effect2 < 5' },
-  'effect2_+2': { probability: 0.0440, condition: 'effect2 < 4' },
-  'effect2_+3': { probability: 0.0175, condition: 'effect2 < 3' },
-  'effect2_+4': { probability: 0.0045, condition: 'effect2 < 2' },
-  'effect2_-1': { probability: 0.0300, condition: 'effect2 > 1' },
-  
-  // 효과 변경
-  'effect1_change': { probability: 0.0325, condition: 'always' },
-  'effect2_change': { probability: 0.0325, condition: 'always' },
-  
-  // 가공 비용 관련
-  'cost_+100': { probability: 0.0175, condition: 'costIncrease < 100 && remainingAttempts > 1' },
-  'cost_-100': { probability: 0.0175, condition: 'costIncrease > -100 && remainingAttempts > 1' },
-  
-  // 기타
-  'maintain': { probability: 0.0175, condition: 'always' },
-  'reroll_+1': { probability: 0.0250, condition: 'remainingAttempts > 1' },
-  'reroll_+2': { probability: 0.0075, condition: 'remainingAttempts > 1' }
-};
+  // 랜덤하게 하나 선택 (50/50 확률로 두 옵션 중 하나)
+  return inactiveIndexes[Math.floor(Math.random() * inactiveIndexes.length)];
+}
+
 
 // 랜덤 선택 헬퍼 함수
 function weightedRandom(weights) {
@@ -59,52 +44,15 @@ function weightedRandom(weights) {
   return Object.keys(weights)[0];
 }
 
-// 조건 확인 함수
+// 조건 확인 함수 (4개 옵션 시스템용)
 function checkCondition(condition, gem) {
-  if (condition === 'always') return true;
-  
-  // 각 조건을 개별적으로 처리
-  switch (condition) {
-    // 의지력 관련
-    case 'willpower < 5': return gem.willpower < 5;
-    case 'willpower < 4': return gem.willpower < 4;
-    case 'willpower < 3': return gem.willpower < 3;
-    case 'willpower < 2': return gem.willpower < 2;
-    case 'willpower > 1': return gem.willpower > 1;
-    
-    // 코어포인트 관련
-    case 'corePoint < 5': return gem.corePoint < 5;
-    case 'corePoint < 4': return gem.corePoint < 4;
-    case 'corePoint < 3': return gem.corePoint < 3;
-    case 'corePoint < 2': return gem.corePoint < 2;
-    case 'corePoint > 1': return gem.corePoint > 1;
-    
-    // 효과1 관련
-    case 'effect1 < 5': return gem.effect1?.level < 5;
-    case 'effect1 < 4': return gem.effect1?.level < 4;
-    case 'effect1 < 3': return gem.effect1?.level < 3;
-    case 'effect1 < 2': return gem.effect1?.level < 2;
-    case 'effect1 > 1': return gem.effect1?.level > 1;
-    
-    // 효과2 관련
-    case 'effect2 < 5': return gem.effect2?.level < 5;
-    case 'effect2 < 4': return gem.effect2?.level < 4;
-    case 'effect2 < 3': return gem.effect2?.level < 3;
-    case 'effect2 < 2': return gem.effect2?.level < 2;
-    case 'effect2 > 1': return gem.effect2?.level > 1;
-    
-    // 복합 조건들
-    case 'costIncrease < 100 && remainingAttempts > 1': 
-      return (gem.costIncrease || 0) < 100 && (gem.remainingAttempts || 0) > 1;
-    case 'costIncrease > -100 && remainingAttempts > 1': 
-      return (gem.costIncrease || 0) > -100 && (gem.remainingAttempts || 0) > 1;
-    case 'remainingAttempts > 1': 
-      return (gem.remainingAttempts || 0) > 1;
-    
-    default:
-      console.warn('Unknown condition:', condition);
-      return false;
+  // PROCESSING_POSSIBILITIES의 condition 함수 직접 실행
+  if (typeof condition === 'function') {
+    return condition(gem);
   }
+  
+  console.warn('Unknown condition type:', condition);
+  return false;
 }
 
 // Fisher-Yates 셔플 알고리즘 (완전한 랜덤 셔플)
@@ -117,135 +65,28 @@ function fisherYatesShuffle(array) {
   return result;
 }
 
-// 가능한 가공 옵션 생성
+// 가능한 가공 옵션 생성 (공통 유틸리티 사용)
 function generateProcessingOptions(gem) {
-  const availableOptions = [];
-  
-  // 모든 가능한 옵션을 배열로 수집
-  for (const [action, config] of Object.entries(PROCESSING_POSSIBILITIES)) {
-    if (checkCondition(config.condition, gem)) {
-      availableOptions.push({
-        action: action,
-        probability: config.probability
-      });
-    }
-  }
-  
-  return availableOptions;
+  return getAvailableProcessingOptions(gem);
 }
 
-// 가공 실행
+// 가공 실행 (게임 로직용 - 추가 처리 포함)
 function executeProcessing(gem, selectedOption) {
   // 안전성 검사
   if (!gem) {
     return gem;
   }
   
-  const newGem = { 
-    ...gem,
-    effect1: gem.effect1 ? { ...gem.effect1 } : { name: '공격력', level: 1 },
-    effect2: gem.effect2 ? { ...gem.effect2 } : { name: '추가 피해', level: 1 }
-  };
+  // 공통 액션 적용 함수 사용
+  const newGem = applyGemAction(gem, selectedOption);
   
-  // effect1, effect2가 올바르게 설정되었는지 확인
-  if (!newGem.effect1 || !newGem.effect2) {
-    return gem; // 안전하게 원본 반환
-  }
-  
-  const [property, operation] = selectedOption.split('_');
-  
-  switch (property) {
-    case 'willpower':
-      if (operation.startsWith('+')) {
-        const increase = parseInt(operation.substring(1));
-        newGem.willpower = Math.min(5, newGem.willpower + increase);
-      } else if (operation.startsWith('-')) {
-        const decrease = parseInt(operation.substring(1));
-        newGem.willpower = Math.max(1, newGem.willpower - decrease);
-      }
-      break;
-      
-    case 'corePoint':
-      if (operation.startsWith('+')) {
-        const increase = parseInt(operation.substring(1));
-        newGem.corePoint = Math.min(5, newGem.corePoint + increase);
-      } else if (operation.startsWith('-')) {
-        const decrease = parseInt(operation.substring(1));
-        newGem.corePoint = Math.max(1, newGem.corePoint - decrease);
-      }
-      break;
-      
-    case 'effect1':
-    case 'effect2':
-      if (operation === 'change') {
-        // 효과 변경 로직
-        const GEM_EFFECTS = {
-          ORDER: {
-            STABLE: ['공격력', '추가 피해', '아군 피해 강화', '낙인력'],
-            SOLID: ['공격력', '보스 피해', '아군 피해 강화', '아군 공격 강화'],
-            IMMUTABLE: ['추가 피해', '보스 피해', '낙인력', '아군 공격 강화']
-          },
-          CHAOS: {
-            EROSION: ['공격력', '추가 피해', '아군 피해 강화', '낙인력'],
-            DISTORTION: ['공격력', '보스 피해', '아군 피해 강화', '아군 공격 강화'],
-            COLLAPSE: ['추가 피해', '보스 피해', '낙인력', '아군 공격 강화']
-          }
-        };
-        const effectPool = GEM_EFFECTS[newGem.mainType][newGem.subType];
-        const currentEffect = newGem[property]?.name;
-        const otherProperty = property === 'effect1' ? 'effect2' : 'effect1';
-        const otherEffect = newGem[otherProperty]?.name;
-        
-        // 현재 효과와 다른 효과를 제외한 새로운 효과 선택
-        const availableEffects = effectPool.filter(effect => 
-          effect !== currentEffect && effect !== otherEffect
-        );
-        
-        if (availableEffects.length > 0 && newGem[property]) {
-          const randomEffect = availableEffects[Math.floor(Math.random() * availableEffects.length)];
-          newGem[property].name = randomEffect;
-        }
-      } else if (operation.startsWith('+')) {
-        const increase = parseInt(operation.substring(1));
-        if (newGem[property]) {
-          newGem[property].level = Math.min(5, (newGem[property].level || 1) + increase);
-        }
-      } else if (operation.startsWith('-')) {
-        const decrease = parseInt(operation.substring(1));
-        if (newGem[property]) {
-          newGem[property].level = Math.max(1, (newGem[property].level || 1) - decrease);
-        }
-      }
-      break;
-      
-    case 'cost':
-      if (operation === '+100') {
-        newGem.costIncrease = Math.min(100, (newGem.costIncrease || 0) + 100);
-      } else if (operation === '-100') {
-        newGem.costIncrease = Math.max(-100, (newGem.costIncrease || 0) - 100);
-      }
-      break;
-      
-    case 'reroll':
-      if (operation.startsWith('+')) {
-        const increase = parseInt(operation.substring(1));
-        newGem.currentRerollAttempts = (newGem.currentRerollAttempts || 0) + increase;
-        newGem.maxRerollAttempts = Math.max(newGem.maxRerollAttempts, newGem.currentRerollAttempts);
-      }
-      break;
-      
-    case 'maintain':
-      // 상태 유지 - 변경사항 없음
-      break;
-  }
-  
+  // 게임 로직 전용 처리
   // 가공 횟수 감소 및 진행 횟수 증가
   newGem.remainingAttempts = Math.max(0, (newGem.remainingAttempts || 10) - 1);
   newGem.processingCount = (newGem.processingCount || 0) + 1;
   
-  // 총 포인트 재계산
-  newGem.totalPoints = (newGem.willpower || 0) + (newGem.corePoint || 0) + 
-                      (newGem.effect1?.level || 0) + (newGem.effect2?.level || 0);
+  // 총 포인트 재계산 (공통 유틸리티 사용)
+  newGem.totalPoints = calculateTotalPoints(newGem);
   
   // 가공 후 새로운 옵션 생성 (남은 가공 횟수가 있을 때만)
   if (newGem.remainingAttempts > 0) {
@@ -265,16 +106,18 @@ export function getAllOptionsStatus(gem) {
     const isAvailable = checkCondition(config.condition, gem);
     allOptions.push({
       action,
-      description: getOptionDescription(action),
+      description: getActionDescription(action),
       probability: config.probability,
       condition: config.condition,
       isAvailable,
       gemState: {
         willpower: gem.willpower,
         corePoint: gem.corePoint,
-        effect1: gem.effect1?.level,
-        effect2: gem.effect2?.level,
-        costIncrease: gem.costIncrease || 0,
+        dealerA: gem.dealerA || 0,
+        dealerB: gem.dealerB || 0,
+        supportA: gem.supportA || 0,
+        supportB: gem.supportB || 0,
+        costModifier: gem.costModifier || 0,
         remainingAttempts: gem.remainingAttempts || 0
       }
     });
@@ -314,7 +157,7 @@ export function processGem(gem) {
     const selectedOption = remainingOptions[selectedIndex];
     selectedOptions.push({
       action: selectedOption.action,
-      description: getOptionDescription(selectedOption.action),
+      description: getActionDescription(selectedOption.action),
       probability: selectedOption.probability // 원래 확률 (표시용)
     });
     
@@ -349,50 +192,11 @@ export function rerollProcessingOptions(gem) {
   return newGem;
 }
 
-// 옵션 설명 생성
-function getOptionDescription(action) {
-  const descriptions = {
-    'willpower_+1': '의지력 효율 +1 증가',
-    'willpower_+2': '의지력 효율 +2 증가',
-    'willpower_+3': '의지력 효율 +3 증가',
-    'willpower_+4': '의지력 효율 +4 증가',
-    'willpower_-1': '의지력 효율 -1 감소',
-    'corePoint_+1': '질서/혼돈 포인트 +1 증가',
-    'corePoint_+2': '질서/혼돈 포인트 +2 증가',
-    'corePoint_+3': '질서/혼돈 포인트 +3 증가',
-    'corePoint_+4': '질서/혼돈 포인트 +4 증가',
-    'corePoint_-1': '질서/혼돈 포인트 -1 감소',
-    'effect1_+1': '첫번째 효과 Lv. +1 증가',
-    'effect1_+2': '첫번째 효과 Lv. +2 증가',
-    'effect1_+3': '첫번째 효과 Lv. +3 증가',
-    'effect1_+4': '첫번째 효과 Lv. +4 증가',
-    'effect1_-1': '첫번째 효과 Lv. -1 감소',
-    'effect2_+1': '두번째 효과 Lv. +1 증가',
-    'effect2_+2': '두번째 효과 Lv. +2 증가',
-    'effect2_+3': '두번째 효과 Lv. +3 증가',
-    'effect2_+4': '두번째 효과 Lv. +4 증가',
-    'effect2_-1': '두번째 효과 Lv. -1 감소',
-    'effect1_change': '첫번째 효과 변경',
-    'effect2_change': '두번째 효과 변경',
-    'cost_+100': '가공 비용 +100% 증가',
-    'cost_-100': '가공 비용 -100% 감소',
-    'maintain': '가공 상태 유지',
-    'reroll_+1': '다른 항목 보기 +1회 증가',
-    'reroll_+2': '다른 항목 보기 +2회 증가'
-  };
-  
-  return descriptions[action] || action;
-}
 
 // 초기 젬 생성 (가공용)
-// 옵션의 포인트 값 계산 (포인트 변화 옵션만)
+// 옵션의 포인트 값 계산 (공통 유틸리티 사용)
 function getOptionValue(action) {
-  // 포인트에 영향을 주는 옵션만 고려
-  const match = action.match(/(willpower|corePoint|effect1|effect2)_([+-]\d+)/);
-  if (!match) return null; // 포인트 변화가 아닌 옵션은 null 반환
-  
-  const value = parseInt(match[2]);
-  return value;
+  return getOptionPointValue(action);
 }
 
 // 전략 정의
@@ -943,22 +747,6 @@ export function calculateProcessingStatistics(results) {
 }
 
 export function createProcessingGem(mainType, subType, grade = 'UNCOMMON') {
-  // 동기적으로 GEM_EFFECTS를 가져오기 위해 상수로 정의
-  const GEM_EFFECTS = {
-    ORDER: {
-      STABLE: ['공격력', '추가 피해', '아군 피해 강화', '낙인력'],
-      SOLID: ['공격력', '보스 피해', '아군 피해 강화', '아군 공격 강화'],
-      IMMUTABLE: ['추가 피해', '보스 피해', '낙인력', '아군 공격 강화']
-    },
-    CHAOS: {
-      EROSION: ['공격력', '추가 피해', '아군 피해 강화', '낙인력'],
-      DISTORTION: ['공격력', '보스 피해', '아군 피해 강화', '아군 공격 강화'],
-      COLLAPSE: ['추가 피해', '보스 피해', '낙인력', '아군 공격 강화']
-    }
-  };
-  const effectPool = GEM_EFFECTS[mainType][subType];
-  const shuffled = fisherYatesShuffle(effectPool);
-  
   // 등급별 다른 항목 보기 횟수 설정
   const getRerollAttempts = (grade) => {
     switch (grade) {
@@ -979,34 +767,188 @@ export function createProcessingGem(mainType, subType, grade = 'UNCOMMON') {
     }
   };
   
-  // 안전하게 효과 선택
-  const effect1Name = shuffled[0] || effectPool[0] || '공격력';
-  const effect2Name = shuffled[1] || effectPool[1] || '추가 피해';
-
   const newGem = {
     grade,
     mainType,
     subType,
     willpower: 1,
     corePoint: 1,
-    effect1: {
-      name: effect1Name,
-      level: 1
-    },
-    effect2: {
-      name: effect2Name,
-      level: 1
-    },
-    totalPoints: 4,
+    // 4개 옵션 시스템: 모두 0으로 시작 (비활성화)
+    dealerA: 0,
+    dealerB: 0, 
+    supportA: 0,
+    supportB: 0,
+    totalPoints: 2, // 의지력 + 코어포인트만
     remainingAttempts: getProcessingAttempts(grade),
     maxRerollAttempts: getRerollAttempts(grade),
     currentRerollAttempts: getRerollAttempts(grade),
     processingCount: 0, // 가공 진행 횟수
-    costIncrease: 0
+    costModifier: 0 // costIncrease -> costModifier로 변경
   };
   
   // 초기 옵션 생성하여 포함
   newGem.currentOptions = processGem(newGem);
   
   return newGem;
+}
+
+/**
+ * 사전 계산된 확률 테이블을 사용한 빠른 확률 조회
+ * @param {Object} gem - 젬 상태
+ * @returns {Promise<Object>} 확률 정보 객체
+ */
+export async function getProbabilitiesFromTable(gem) {
+  // 확률 테이블이 로드되지 않았다면 로드
+  if (!probabilityLoader.isLoaded) {
+    const loaded = await probabilityLoader.loadTable();
+    if (!loaded) {
+      console.warn('확률 테이블 로드 실패, fallback 사용');
+      return null;
+    }
+  }
+  
+  return probabilityLoader.getProbabilities(gem);
+}
+
+/**
+ * 수동 옵션 선택 시 확률 계산 (사전 계산된 테이블 사용)
+ * @param {Object} gem - 젬 상태  
+ * @param {Array} selectedOptions - 선택된 옵션들
+ * @returns {Promise<Object>} 확률 정보 객체
+ */
+export async function getProbabilitiesWithOptions(gem, selectedOptions) {
+  // 확률 테이블이 로드되지 않았다면 로드
+  if (!probabilityLoader.isLoaded) {
+    const loaded = await probabilityLoader.loadTable();
+    if (!loaded) {
+      console.warn('확률 테이블 로드 실패, fallback 사용');
+      return null;
+    }
+  }
+  
+  return probabilityLoader.getProbabilitiesWithOptions(gem, selectedOptions);
+}
+
+/**
+ * 기존 calculateExactProbabilities 함수를 사전 계산된 테이블로 대체
+ * (하위 호환성을 위해 같은 인터페이스 유지)
+ * @param {Object} processingGem - 가공할 젬
+ * @param {Object} memo - 메모이제이션 (사용하지 않음, 호환성용)
+ * @param {Function} progressCallback - 진행상황 콜백 (사용하지 않음, 호환성용)
+ * @returns {Promise<Object>} 확률 결과
+ */
+export async function calculateExactProbabilitiesFromTable(processingGem, memo = {}, progressCallback = null) {
+  const probabilities = await getProbabilitiesFromTable(processingGem);
+  
+  if (!probabilities) {
+    // fallback: 기존 함수 사용
+    console.warn('사전 계산된 테이블을 사용할 수 없어 기존 계산 방식을 사용합니다.');
+    return calculateExactProbabilities(processingGem, memo, progressCallback);
+  }
+  
+  // 기존 인터페이스와 호환되도록 변환
+  return {
+    current: probabilities.current,
+    afterReroll: probabilities.afterReroll,
+    withCurrentOptions: probabilities.withCurrentOptions,
+    availableOptions: probabilities.availableOptions
+  };
+}
+
+/**
+ * 젬 상태 변화 계산 (executeGemProcessing의 간단한 버전)
+ * @param {Object} gem - 현재 젬 상태
+ * @param {string} action - 적용할 액션
+ * @returns {Object} 새로운 젬 상태
+ */
+export function calculateNextGemState(gem, action) {
+  const newGem = {
+    ...gem,
+    remainingAttempts: Math.max(0, gem.remainingAttempts - 1),
+    processingCount: gem.processingCount + 1
+  };
+
+  // 액션 적용
+  if (action.includes('willpower_+')) {
+    const change = parseInt(action.split('+')[1]);
+    newGem.willpower = Math.min(5, newGem.willpower + change);
+  } else if (action.includes('willpower_-')) {
+    const change = parseInt(action.split('-')[1]);
+    newGem.willpower = Math.max(1, newGem.willpower - change);
+  } else if (action.includes('corePoint_+')) {
+    const change = parseInt(action.split('+')[1]);
+    newGem.corePoint = Math.min(5, newGem.corePoint + change);
+  } else if (action.includes('corePoint_-')) {
+    const change = parseInt(action.split('-')[1]);
+    newGem.corePoint = Math.max(1, newGem.corePoint - change);
+  } else if (action.includes('effect1_+')) {
+    const change = parseInt(action.split('+')[1]);
+    newGem.effect1.level = Math.min(5, newGem.effect1.level + change);
+  } else if (action.includes('effect2_+')) {
+    const change = parseInt(action.split('+')[1]);
+    newGem.effect2.level = Math.min(5, newGem.effect2.level + change);
+  }
+
+  return newGem;
+}
+
+/**
+ * 선택된 옵션들에 대한 확률 계산 (개별 옵션별 확률도 포함)
+ * @param {Object} gem - 현재 젬 상태
+ * @param {Array} options - 선택된 옵션들 (4개)
+ * @returns {Promise<Object>} 각 목표별 확률과 개별 옵션 정보
+ */
+export async function calculateOptionsBasedProbabilities(gem, options) {
+  try {
+    const result = {};
+    const individualOptions = [];
+    const targets = ['5/5', '5/4', '4/5', '5/3', '4/4', '3/5', 'sum8+', 'sum9+', 'relic+', 'ancient+'];
+    
+    // 각 타겟에 대해 0으로 초기화
+    targets.forEach(target => {
+      result[target] = 0;
+    });
+
+    // 4개 옵션 각각에 25% 확률로 선택
+    const optionProb = 0.25;
+    
+    for (let i = 0; i < options.length; i++) {
+      const option = options[i];
+      
+      // 각 옵션 적용 후 상태 계산
+      const nextGem = calculateNextGemState(gem, option.action);
+      
+      // 다음 상태의 확률 조회
+      const nextProbs = await getProbabilitiesFromTable(nextGem);
+      
+      if (nextProbs && nextProbs.current) {
+        // 전체 확률에 기여분 추가
+        targets.forEach(target => {
+          result[target] += optionProb * (nextProbs.current[target] || 0);
+        });
+        
+        // 개별 옵션 정보 저장
+        const individualProbs = {};
+        targets.forEach(target => {
+          individualProbs[target] = nextProbs.current[target] || 0;
+        });
+        
+        individualOptions.push({
+          index: i,
+          action: option.action,
+          description: option.description,
+          probabilities: individualProbs,
+          selectionProbability: optionProb
+        });
+      }
+    }
+    
+    return {
+      combinedProbabilities: result,
+      individualOptions: individualOptions
+    };
+  } catch (error) {
+    console.error('옵션 기반 확률 계산 오류:', error);
+    return null;
+  }
 }

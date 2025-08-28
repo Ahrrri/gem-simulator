@@ -1,0 +1,413 @@
+// 젬 관련 공통 상수 및 정의
+
+// 젬 타입 정의
+export const GEM_TYPES = {
+  ORDER: {
+    STABLE: '안정',
+    SOLID: '견고',
+    IMMUTABLE: '불변'
+  },
+  CHAOS: {
+    EROSION: '침식',
+    DISTORTION: '왜곡',
+    COLLAPSE: '붕괴'
+  }
+};
+
+// 젬 효과 정의 (4개 옵션: 딜러A, 딜러B, 서폿A, 서폿B)
+export const GEM_EFFECTS = {
+  ORDER: {
+    STABLE: ['공격력', '추가 피해', '아군 피해 강화', '낙인력'],
+    SOLID: ['공격력', '보스 피해', '아군 피해 강화', '아군 공격 강화'],
+    IMMUTABLE: ['추가 피해', '보스 피해', '낙인력', '아군 공격 강화']
+  },
+  CHAOS: {
+    EROSION: ['공격력', '추가 피해', '아군 피해 강화', '낙인력'],
+    DISTORTION: ['공격력', '보스 피해', '아군 피해 강화', '아군 공격 강화'],
+    COLLAPSE: ['추가 피해', '보스 피해', '낙인력', '아군 공격 강화']
+  }
+};
+
+// 효과 인덱스 매핑 (0: 딜러A, 1: 딜러B, 2: 서폿A, 3: 서폿B)
+export const EFFECT_INDEX_NAMES = {
+  0: 'dealerA',
+  1: 'dealerB', 
+  2: 'supportA',
+  3: 'supportB'
+};
+
+export const EFFECT_NAME_INDEXES = {
+  'dealerA': 0,
+  'dealerB': 1,
+  'supportA': 2,
+  'supportB': 3
+};
+
+// 젬 등급 정의
+export const GEM_GRADES = {
+  UNCOMMON: '고급',
+  RARE: '희귀',
+  HEROIC: '영웅',
+  LEGENDARY: '전설',
+  RELIC: '유물',
+  ANCIENT: '고대'
+};
+
+// 젬 등급별 색상
+export const GEM_GRADE_COLORS = {
+  UNCOMMON: '#4CAF50',
+  RARE: '#2196F3',
+  HEROIC: '#9C27B0',
+  LEGENDARY: '#FF9800',
+  RELIC: '#F44336',
+  ANCIENT: '#C0C0C0'
+};
+
+
+// 가공 가능성 확률 테이블 (4개 옵션 지원)
+export const PROCESSING_POSSIBILITIES = {
+  'willpower_+1': { probability: 0.1165, condition: (gem) => gem.willpower < 5 },
+  'willpower_+2': { probability: 0.0440, condition: (gem) => gem.willpower < 4 },
+  'willpower_+3': { probability: 0.0175, condition: (gem) => gem.willpower < 3 },
+  'willpower_+4': { probability: 0.0045, condition: (gem) => gem.willpower < 2 },
+  'willpower_-1': { probability: 0.0300, condition: (gem) => gem.willpower > 1 },
+  
+  'corePoint_+1': { probability: 0.1165, condition: (gem) => gem.corePoint < 5 },
+  'corePoint_+2': { probability: 0.0440, condition: (gem) => gem.corePoint < 4 },
+  'corePoint_+3': { probability: 0.0175, condition: (gem) => gem.corePoint < 3 },
+  'corePoint_+4': { probability: 0.0045, condition: (gem) => gem.corePoint < 2 },
+  'corePoint_-1': { probability: 0.0300, condition: (gem) => gem.corePoint > 1 },
+  
+  // 4개 옵션 각각에 대한 레벨 조정
+  'dealerA_+1': { probability: 0.1165, condition: (gem) => (gem.dealerA || 0) < 5 },
+  'dealerA_+2': { probability: 0.0440, condition: (gem) => (gem.dealerA || 0) < 4 },
+  'dealerA_+3': { probability: 0.0175, condition: (gem) => (gem.dealerA || 0) < 3 },
+  'dealerA_+4': { probability: 0.0045, condition: (gem) => (gem.dealerA || 0) < 2 },
+  'dealerA_-1': { probability: 0.0300, condition: (gem) => (gem.dealerA || 0) > 1 },
+  
+  'dealerB_+1': { probability: 0.1165, condition: (gem) => (gem.dealerB || 0) < 5 },
+  'dealerB_+2': { probability: 0.0440, condition: (gem) => (gem.dealerB || 0) < 4 },
+  'dealerB_+3': { probability: 0.0175, condition: (gem) => (gem.dealerB || 0) < 3 },
+  'dealerB_+4': { probability: 0.0045, condition: (gem) => (gem.dealerB || 0) < 2 },
+  'dealerB_-1': { probability: 0.0300, condition: (gem) => (gem.dealerB || 0) > 1 },
+  
+  'supportA_+1': { probability: 0.1165, condition: (gem) => (gem.supportA || 0) < 5 },
+  'supportA_+2': { probability: 0.0440, condition: (gem) => (gem.supportA || 0) < 4 },
+  'supportA_+3': { probability: 0.0175, condition: (gem) => (gem.supportA || 0) < 3 },
+  'supportA_+4': { probability: 0.0045, condition: (gem) => (gem.supportA || 0) < 2 },
+  'supportA_-1': { probability: 0.0300, condition: (gem) => (gem.supportA || 0) > 1 },
+  
+  'supportB_+1': { probability: 0.1165, condition: (gem) => (gem.supportB || 0) < 5 },
+  'supportB_+2': { probability: 0.0440, condition: (gem) => (gem.supportB || 0) < 4 },
+  'supportB_+3': { probability: 0.0175, condition: (gem) => (gem.supportB || 0) < 3 },
+  'supportB_+4': { probability: 0.0045, condition: (gem) => (gem.supportB || 0) < 2 },
+  'supportB_-1': { probability: 0.0300, condition: (gem) => (gem.supportB || 0) > 1 },
+  
+  // 옵션 변경 (0이 아닌 옵션을 다른 옵션으로 변경)
+  'dealerA_change': { probability: 0.0325, condition: (gem) => (gem.dealerA || 0) > 0 },
+  'dealerB_change': { probability: 0.0325, condition: (gem) => (gem.dealerB || 0) > 0 },
+  'supportA_change': { probability: 0.0325, condition: (gem) => (gem.supportA || 0) > 0 },
+  'supportB_change': { probability: 0.0325, condition: (gem) => (gem.supportB || 0) > 0 },
+  
+  'cost_+100': { probability: 0.0175, condition: (gem) => (gem.costModifier || 0) < 100 && gem.remainingAttempts > 1 },
+  'cost_-100': { probability: 0.0175, condition: (gem) => (gem.costModifier || 0) > -100 && gem.remainingAttempts > 1 },
+  
+  // 기타
+  'maintain': { probability: 0.0175, condition: () => true }, // 변동 없음
+  'reroll_+1': { probability: 0.0250, condition: (gem) => gem.remainingAttempts > 1 }, // 리롤 횟수 1회 증가
+  'reroll_+2': { probability: 0.0075, condition: (gem) => gem.remainingAttempts > 1 }  // 리롤 횟수 2회 증가
+};
+
+// 젬 융합 시 등급별 확률 (확률 페이지 기반)
+export const FUSION_GRADE_PROBABILITY = {
+  // 전설 3개
+  LEGENDARY_3: {
+    LEGENDARY: 0.99,
+    RELIC: 0.01,
+    ANCIENT: 0.00
+  },
+  // 전설 2개 + 유물 1개
+  LEGENDARY_2_RELIC_1: {
+    LEGENDARY: 0.73,
+    RELIC: 0.25,
+    ANCIENT: 0.02
+  },
+  // 전설 2개 + 고대 1개
+  LEGENDARY_2_ANCIENT_1: {
+    LEGENDARY: 0.35,
+    RELIC: 0.40,
+    ANCIENT: 0.25
+  },
+  // 전설 1개 + 유물 2개
+  LEGENDARY_1_RELIC_2: {
+    LEGENDARY: 0.46,
+    RELIC: 0.50,
+    ANCIENT: 0.04
+  },
+  // 전설 1개 + 유물 1개 + 고대 1개
+  LEGENDARY_1_RELIC_1_ANCIENT_1: {
+    LEGENDARY: 0.08,
+    RELIC: 0.65,
+    ANCIENT: 0.27
+  },
+  // 전설 1개 + 고대 2개
+  LEGENDARY_1_ANCIENT_2: {
+    LEGENDARY: 0.00,
+    RELIC: 0.50,
+    ANCIENT: 0.50
+  },
+  // 유물 3개
+  RELIC_3: {
+    LEGENDARY: 0.19,
+    RELIC: 0.75,
+    ANCIENT: 0.06
+  },
+  // 유물 2개 + 고대 1개
+  RELIC_2_ANCIENT_1: {
+    LEGENDARY: 0.00,
+    RELIC: 0.71,
+    ANCIENT: 0.29
+  },
+  // 유물 1개 + 고대 2개
+  RELIC_1_ANCIENT_2: {
+    LEGENDARY: 0.00,
+    RELIC: 0.48,
+    ANCIENT: 0.52
+  },
+  // 고대 3개
+  ANCIENT_3: {
+    LEGENDARY: 0.00,
+    RELIC: 0.25,
+    ANCIENT: 0.75
+  }
+};
+
+// 결과 젬 포인트 분포 확률 (전설 등급)
+export const LEGENDARY_POINT_DISTRIBUTION = {
+  4: 0.01,
+  5: 0.02,
+  6: 0.04,
+  7: 0.07,
+  8: 0.13,
+  9: 0.19,
+  10: 0.22,
+  11: 0.15,
+  12: 0.10,
+  13: 0.04,
+  14: 0.02,
+  15: 0.01
+};
+
+// 유물 등급 포인트 분포
+export const RELIC_POINT_DISTRIBUTION = {
+  16: 0.80,
+  17: 0.15,
+  18: 0.05
+};
+
+// 고대 등급 포인트 분포
+export const ANCIENT_POINT_DISTRIBUTION = {
+  19: 0.95,
+  20: 0.05
+};
+
+// 젬 타입과 서브타입으로부터 효과 목록 가져오기
+export function getEffectsForGem(mainType, subType) {
+  return GEM_EFFECTS[mainType]?.[subType] || [];
+}
+
+// 가공 옵션 설명 (통합됨)
+export const PROCESSING_ACTION_DESCRIPTIONS = {
+  'willpower_+1': '의지력 효율 +1 증가',
+  'willpower_+2': '의지력 효율 +2 증가',
+  'willpower_+3': '의지력 효율 +3 증가',
+  'willpower_+4': '의지력 효율 +4 증가',
+  'willpower_-1': '의지력 효율 -1 감소',
+  'corePoint_+1': '질서/혼돈 포인트 +1 증가',
+  'corePoint_+2': '질서/혼돈 포인트 +2 증가',
+  'corePoint_+3': '질서/혼돈 포인트 +3 증가',
+  'corePoint_+4': '질서/혼돈 포인트 +4 증가',
+  'corePoint_-1': '질서/혼돈 포인트 -1 감소',
+  'dealerA_+1': '딜러A 옵션 Lv. +1 증가',
+  'dealerA_+2': '딜러A 옵션 Lv. +2 증가',
+  'dealerA_+3': '딜러A 옵션 Lv. +3 증가',
+  'dealerA_+4': '딜러A 옵션 Lv. +4 증가',
+  'dealerA_-1': '딜러A 옵션 Lv. -1 감소',
+  'dealerB_+1': '딜러B 옵션 Lv. +1 증가',
+  'dealerB_+2': '딜러B 옵션 Lv. +2 증가',
+  'dealerB_+3': '딜러B 옵션 Lv. +3 증가',
+  'dealerB_+4': '딜러B 옵션 Lv. +4 증가',
+  'dealerB_-1': '딜러B 옵션 Lv. -1 감소',
+  'supportA_+1': '서폿A 옵션 Lv. +1 증가',
+  'supportA_+2': '서폿A 옵션 Lv. +2 증가',
+  'supportA_+3': '서폿A 옵션 Lv. +3 증가',
+  'supportA_+4': '서폿A 옵션 Lv. +4 증가',
+  'supportA_-1': '서폿A 옵션 Lv. -1 감소',
+  'supportB_+1': '서폿B 옵션 Lv. +1 증가',
+  'supportB_+2': '서폿B 옵션 Lv. +2 증가',
+  'supportB_+3': '서폿B 옵션 Lv. +3 증가',
+  'supportB_+4': '서폿B 옵션 Lv. +4 증가',
+  'supportB_-1': '서폿B 옵션 Lv. -1 감소',
+  'dealerA_change': '딜러A 옵션 변경',
+  'dealerB_change': '딜러B 옵션 변경',
+  'supportA_change': '서폿A 옵션 변경',
+  'supportB_change': '서폿B 옵션 변경',
+  'cost_+100': '가공 비용 +100% 증가',
+  'cost_-100': '가공 비용 -100% 감소',
+  'maintain': '가공 상태 유지',
+  'reroll_+1': '다른 항목 보기 +1회 증가',
+  'reroll_+2': '다른 항목 보기 +2회 증가'
+};
+
+// 옵션 설명 가져오기 함수
+export function getActionDescription(action) {
+  return PROCESSING_ACTION_DESCRIPTIONS[action] || action;
+}
+
+// 공통 액션 적용 함수 (게임 로직과 확률 계산 모두에서 사용)
+export function applyGemAction(gem, action) {
+  const newGem = { ...gem };
+  const [property, operation] = action.split('_');
+  
+  switch (property) {
+    case 'willpower':
+      if (operation.startsWith('+')) {
+        const increase = parseInt(operation.substring(1));
+        newGem.willpower = Math.min(5, newGem.willpower + increase);
+      } else if (operation.startsWith('-')) {
+        const decrease = parseInt(operation.substring(1));
+        newGem.willpower = Math.max(1, newGem.willpower - decrease);
+      }
+      break;
+      
+    case 'corePoint':
+      if (operation.startsWith('+')) {
+        const increase = parseInt(operation.substring(1));
+        newGem.corePoint = Math.min(5, newGem.corePoint + increase);
+      } else if (operation.startsWith('-')) {
+        const decrease = parseInt(operation.substring(1));
+        newGem.corePoint = Math.max(1, newGem.corePoint - decrease);
+      }
+      break;
+      
+    case 'dealerA':
+    case 'dealerB':
+    case 'supportA':
+    case 'supportB':
+      if (operation === 'change') {
+        // 4개 옵션 중에서 현재 0이 아닌 다른 옵션으로 변경
+        const currentOptions = ['dealerA', 'dealerB', 'supportA', 'supportB'];
+        const inactiveOptions = currentOptions.filter(opt => (newGem[opt] || 0) === 0);
+        
+        if (inactiveOptions.length > 0) {
+          // 현재 레벨을 다른 옵션으로 이동
+          const currentLevel = newGem[property] || 0;
+          const randomInactive = inactiveOptions[Math.floor(Math.random() * inactiveOptions.length)];
+          newGem[property] = 0;
+          newGem[randomInactive] = currentLevel;
+        }
+      } else if (operation.startsWith('+')) {
+        const increase = parseInt(operation.substring(1));
+        newGem[property] = Math.min(5, (newGem[property] || 0) + increase);
+      } else if (operation.startsWith('-')) {
+        const decrease = parseInt(operation.substring(1));
+        newGem[property] = Math.max(0, (newGem[property] || 0) - decrease);
+      }
+      break;
+      
+    case 'cost':
+      if (operation === '+100') {
+        newGem.costModifier = Math.min(100, (newGem.costModifier || 0) + 100);
+      } else if (operation === '-100') {
+        newGem.costModifier = Math.max(-100, (newGem.costModifier || 0) - 100);
+      }
+      break;
+      
+    case 'reroll':
+      if (operation.startsWith('+')) {
+        const increase = parseInt(operation.substring(1));
+        newGem.currentRerollAttempts = (newGem.currentRerollAttempts || 0) + increase;
+        newGem.maxRerollAttempts = Math.max(newGem.maxRerollAttempts, newGem.currentRerollAttempts);
+      }
+      break;
+      
+    case 'maintain':
+      // 상태 유지 - 변경사항 없음
+      break;
+  }
+  
+  return newGem;
+}
+
+// 공통 유틸리티 함수들
+
+// 총 포인트 계산 (4개 옵션 시스템)
+export function calculateTotalPoints(gem) {
+  return (gem.willpower || 0) + (gem.corePoint || 0) + 
+         (gem.dealerA || 0) + (gem.dealerB || 0) + 
+         (gem.supportA || 0) + (gem.supportB || 0);
+}
+
+// 젬 상태를 키 문자열로 변환 (메모이제이션용)
+export function gemStateToKey(gem) {
+  // 리롤 횟수를 4로 제한하여 메모이제이션 효율 향상
+  const cappedReroll = Math.min(4, gem.currentRerollAttempts || 0);
+  
+  // 4개 옵션 레벨 (0~5)
+  const dealerA = gem.dealerA || 0;
+  const dealerB = gem.dealerB || 0;  
+  const supportA = gem.supportA || 0;
+  const supportB = gem.supportB || 0;
+  
+  return `${gem.willpower},${gem.corePoint},${dealerA},${dealerB},${supportA},${supportB},${gem.remainingAttempts},${cappedReroll}`;
+}
+
+// 사용 가능한 옵션들 가져오기
+export function getAvailableProcessingOptions(gem) {
+  const options = [];
+  
+  for (const [action, config] of Object.entries(PROCESSING_POSSIBILITIES)) {
+    if (config.condition(gem)) {
+      options.push({
+        action: action,
+        probability: config.probability,
+        description: getActionDescription(action)
+      });
+    }
+  }
+  
+  return options;
+}
+
+// 옵션의 포인트 값 계산 (포인트 변화 옵션만)
+export function getOptionPointValue(action) {
+  // 포인트에 영향을 주는 옵션만 고려
+  const match = action.match(/(willpower|corePoint|dealerA|dealerB|supportA|supportB)_([+-]\d+)/);
+  if (!match) return null; // 포인트 변화가 아닌 옵션은 null 반환
+  
+  const value = parseInt(match[2]);
+  return value;
+}
+
+
+export default {
+  GEM_TYPES,
+  GEM_EFFECTS,
+  EFFECT_INDEX_NAMES,
+  EFFECT_NAME_INDEXES,
+  GEM_GRADES,
+  GEM_GRADE_COLORS,
+  PROCESSING_POSSIBILITIES,
+  PROCESSING_ACTION_DESCRIPTIONS,
+  FUSION_GRADE_PROBABILITY,
+  LEGENDARY_POINT_DISTRIBUTION,
+  RELIC_POINT_DISTRIBUTION,
+  ANCIENT_POINT_DISTRIBUTION,
+  getEffectsForGem,
+  getActionDescription,
+  applyGemAction,
+  calculateTotalPoints,
+  gemStateToKey,
+  getAvailableProcessingOptions,
+  getOptionPointValue
+};

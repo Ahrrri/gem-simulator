@@ -1,5 +1,6 @@
 import './MaterialSection.css';
-import { getFusionProbabilities, GEM_TYPES } from '../utils/gemFusion';
+import { GEM_TYPES } from '../utils/gemConstants';
+import { getFusionProbabilities } from '../utils/gemFusion';
 
 function MaterialSection({ materials, setMaterials }) {
   // 젬 타입 조합 옵션

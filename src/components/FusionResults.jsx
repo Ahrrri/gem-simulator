@@ -1,5 +1,5 @@
 import './FusionResults.css';
-import { GEM_TYPES } from '../utils/gemFusion';
+import { GEM_TYPES } from '../utils/gemConstants';
 
 function FusionResults({ currentResult }) {
   const getGemTypeName = (mainType, subType) => {

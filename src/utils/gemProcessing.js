@@ -70,6 +70,9 @@ function generateProcessingOptions(gem) {
   return getAvailableProcessingOptions(gem);
 }
 
+// ProcessingGemDisplay에서 사용하는 함수를 다시 export
+export { getAvailableProcessingOptions };
+
 // 가공 실행 (게임 로직용 - 추가 처리 포함)
 function executeProcessing(gem, selectedOption) {
   // 안전성 검사
@@ -767,18 +770,34 @@ export function createProcessingGem(mainType, subType, grade = 'UNCOMMON') {
     }
   };
   
+  // 6가지 조합 중 랜덤 선택: [dealerA, dealerB, supportA, supportB] 중 2개가 활성화
+  const combinations = [
+    [1, 1, 0, 0], // dealerA + dealerB
+    [1, 0, 1, 0], // dealerA + supportA
+    [1, 0, 0, 1], // dealerA + supportB
+    [0, 1, 1, 0], // dealerB + supportA
+    [0, 1, 0, 1], // dealerB + supportB
+    [0, 0, 1, 1]  // supportA + supportB
+  ];
+  
+  const randomCombination = combinations[Math.floor(Math.random() * combinations.length)];
+  const [dealerA, dealerB, supportA, supportB] = randomCombination;
+
   const newGem = {
     grade,
     mainType,
     subType,
     willpower: 1,
     corePoint: 1,
-    // 4개 옵션 시스템: 모두 0으로 시작 (비활성화)
-    dealerA: 0,
-    dealerB: 0, 
-    supportA: 0,
-    supportB: 0,
-    totalPoints: 2, // 의지력 + 코어포인트만
+    // 4개 옵션 시스템: 랜덤으로 선택된 2개 옵션이 1, 나머지는 0
+    dealerA,
+    dealerB, 
+    supportA,
+    supportB,
+    // 하위 호환성을 위한 effect1, effect2 (dealerA, dealerB와 매핑)
+    effect1: { name: '첫번째 효과', level: 1 },
+    effect2: { name: '두번째 효과', level: 1 },
+    totalPoints: 4, // 의지력 + 코어포인트 + 활성화된 2개 옵션
     remainingAttempts: getProcessingAttempts(grade),
     maxRerollAttempts: getRerollAttempts(grade),
     currentRerollAttempts: getRerollAttempts(grade),

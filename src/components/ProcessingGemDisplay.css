@@ -5,8 +5,8 @@
   padding: 20px;
 }
 
-/* Probability Table Controls */
-.probability-table-controls {
+/* API Server Controls */
+.api-server-controls {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -15,12 +15,50 @@
   background: #f8f9fa;
   border-radius: 8px;
   border: 1px solid #dee2e6;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
-.probability-table-controls h3 {
-  margin: 0;
-  color: #495057;
-  font-size: 1.1rem;
+.server-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.status-indicator {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.refresh-connection-btn,
+.view-stats-btn {
+  padding: 0.5rem 1rem;
+  border: 1px solid #007bff;
+  border-radius: 6px;
+  background: white;
+  color: #007bff;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  white-space: nowrap;
+}
+
+.refresh-connection-btn:hover:not(:disabled),
+.view-stats-btn:hover:not(:disabled) {
+  background: #007bff;
+  color: white;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 123, 255, 0.3);
+}
+
+.refresh-connection-btn:disabled,
+.view-stats-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: #f8f9fa;
+  color: #6c757d;
+  border-color: #dee2e6;
 }
 
 .controls-right {
@@ -150,6 +188,25 @@
 .stat-row span:last-child.max {
   color: #27ae60;
   text-shadow: 0 0 10px rgba(39, 174, 96, 0.3);
+}
+
+.gem-options {
+  margin-top: 1rem;
+}
+
+.gem-options h4 {
+  margin: 0 0 0.5rem 0;
+  color: #495057;
+  font-size: 0.9rem;
+}
+
+.option-item {
+  background: rgba(255, 255, 255, 0.8);
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  margin-bottom: 0.25rem;
+  font-size: 0.8rem;
+  color: #495057;
 }
 
 .gem-info {
@@ -557,6 +614,126 @@
   color: #dc3545;
 }
 
+/* Probabilities Section */
+.probabilities-section {
+  background: #f8f9fa;
+  padding: 1rem;
+  border-radius: 8px;
+  border: 1px solid #dee2e6;
+  margin-top: 1rem;
+}
+
+.loading-message {
+  text-align: center;
+  color: #667eea;
+  font-style: italic;
+  padding: 1rem;
+}
+
+.current-probabilities {
+  margin-bottom: 1.5rem;
+}
+
+.current-probabilities h4 {
+  margin: 0 0 1rem 0;
+  color: #495057;
+  font-size: 1rem;
+  text-align: center;
+  border-bottom: 1px solid #dee2e6;
+  padding-bottom: 0.5rem;
+}
+
+.option-probabilities {
+  margin-top: 1.5rem;
+}
+
+.option-probabilities h4 {
+  margin: 0 0 1rem 0;
+  color: #495057;
+  font-size: 1rem;
+  text-align: center;
+  border-bottom: 1px solid #dee2e6;
+  padding-bottom: 0.5rem;
+}
+
+.options-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.option-preview {
+  background: white;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  padding: 0.75rem;
+}
+
+.option-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.option-name {
+  font-weight: 600;
+  color: #495057;
+}
+
+.selection-prob {
+  font-size: 0.8rem;
+  color: #6c757d;
+  font-style: italic;
+}
+
+.future-probabilities {
+  background: #f8f9fa;
+  border-radius: 4px;
+  padding: 0.5rem;
+}
+
+.prob-row {
+  display: flex;
+  justify-content: space-around;
+  gap: 1rem;
+  font-size: 0.8rem;
+}
+
+.prob-row span {
+  flex: 1;
+  text-align: center;
+  font-weight: 500;
+  color: #667eea;
+}
+
+.no-server-message {
+  text-align: center;
+  color: #e74c3c;
+  padding: 1rem;
+  background: rgba(231, 76, 60, 0.1);
+  border-radius: 6px;
+  margin-top: 1rem;
+}
+
+.error-message {
+  text-align: center;
+  color: #e74c3c;
+  padding: 1rem;
+  background: rgba(231, 76, 60, 0.1);
+  border-radius: 6px;
+  margin-top: 1rem;
+}
+
+.server-ready {
+  text-align: center;
+  color: #27ae60;
+  padding: 1rem;
+  background: rgba(39, 174, 96, 0.1);
+  border-radius: 6px;
+  margin-top: 1rem;
+}
+
 /* Target Probabilities Section */
 .target-probabilities-section {
   background: #f8f9fa;
@@ -614,6 +791,30 @@
   grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
   gap: 0.5rem;
   align-items: start;
+}
+
+.probability-item {
+  background: white;
+  padding: 0.5rem;
+  border-radius: 6px;
+  border: 2px solid #e9ecef;
+  text-align: center;
+  transition: all 0.2s ease;
+}
+
+.probability-item .target {
+  display: block;
+  font-weight: 600;
+  font-size: 0.8rem;
+  color: #495057;
+  margin-bottom: 0.25rem;
+}
+
+.probability-item .probability {
+  display: block;
+  font-size: 1rem;
+  font-weight: bold;
+  color: #667eea;
 }
 
 .probability-target {

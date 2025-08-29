@@ -5,7 +5,7 @@ import ProcessingTab from './components/ProcessingTab';
 
 function App() {
   // 탭 상태만 관리
-  const [activeTab, setActiveTab] = useState('fusion'); // 'fusion' or 'processing'
+  const [activeTab, setActiveTab] = useState('fusion'); // 'fusion', 'processing'
 
   return (
     <div className="App">

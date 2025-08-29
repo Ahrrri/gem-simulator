@@ -80,6 +80,9 @@ function executeProcessing(gem, selectedOption) {
     return gem;
   }
   
+  // 가공 비용 계산 및 누적 (액션 적용 전 현재 상태 기준)
+  const processingCost = 900 * (1 + (gem.costModifier || 0) / 100);
+  
   // 공통 액션 적용 함수 사용
   const newGem = applyGemAction(gem, selectedOption);
   
@@ -88,14 +91,28 @@ function executeProcessing(gem, selectedOption) {
   newGem.remainingAttempts = Math.max(0, (newGem.remainingAttempts || 10) - 1);
   newGem.processingCount = (newGem.processingCount || 0) + 1;
   
+  // 비용 누적
+  newGem.totalGoldSpent = (gem.totalGoldSpent || 0) + processingCost;
+  
+  // 히스토리 링크 연결 (현재 젬의 이전 상태를 이전 젬으로 설정)
+  newGem.previousState = gem;
+  newGem.processedWith = {
+    action: selectedOption,
+    description: getActionDescription ? getActionDescription(selectedOption) : selectedOption,
+    cost: processingCost,
+  };
+  
   // 총 포인트 재계산 (공통 유틸리티 사용)
   newGem.totalPoints = calculateTotalPoints(newGem);
   
   // 가공 후 새로운 옵션 생성 (남은 가공 횟수가 있을 때만)
   if (newGem.remainingAttempts > 0) {
-    newGem.currentOptions = processGem(newGem);
+    newGem.autoOptionSet = sampleAutoOptionSet(newGem);
+    // 가공 후에는 수동 선택 초기화
+    newGem.manualOptionSet = null;
   } else {
-    newGem.currentOptions = [];
+    newGem.autoOptionSet = [];
+    newGem.manualOptionSet = null;
   }
   
   return newGem;
@@ -129,8 +146,8 @@ export function getAllOptionsStatus(gem) {
   return allOptions;
 }
 
-// 젬 가공 메인 함수
-export function processGem(gem) {
+// 자동 옵션 샘플링 함수
+export function sampleAutoOptionSet(gem) {
   // 가공 가능한 옵션들 생성
   const availableOptions = generateProcessingOptions(gem);
   
@@ -189,8 +206,10 @@ export function rerollProcessingOptions(gem) {
     currentRerollAttempts: gem.currentRerollAttempts - 1
   };
   
-  // 새로운 옵션을 젬에 포함
-  newGem.currentOptions = processGem(newGem);
+  // 새로운 옵션을 젬에 포함 (자동 모드용)
+  newGem.autoOptionSet = sampleAutoOptionSet(newGem);
+  // 수동 옵션 세트는 초기화 (리롤 후에는 수동 선택 리셋)
+  newGem.manualOptionSet = null;
   
   return newGem;
 }
@@ -254,11 +273,11 @@ export function simulateProcessing(initialGem, trackOptions = false, strategy = 
   while (gem.remainingAttempts > 0) {
     // 첫 번째 가공에서는 현재 옵션 사용, 그 이후에는 새로 생성
     let options;
-    if (isFirstProcessing && gem.currentOptions && gem.currentOptions.length > 0) {
-      options = gem.currentOptions;
+    if (isFirstProcessing && gem.autoOptionSet && gem.autoOptionSet.length > 0) {
+      options = gem.autoOptionSet;
       isFirstProcessing = false;
     } else {
-      options = processGem(gem);
+      options = sampleAutoOptionSet(gem);
     }
     
     if (options.length === 0) {
@@ -281,7 +300,7 @@ export function simulateProcessing(initialGem, trackOptions = false, strategy = 
       const rerollResult = rerollProcessingOptions(gem);
       if (rerollResult) {
         gem = rerollResult;
-        options = gem.currentOptions;
+        options = gem.autoOptionSet;
         totalRerollsUsed++;
         rerollUsedThisAttempt = true;
       }
@@ -556,15 +575,15 @@ export function calculateExactProbabilities(processingGem, memo = {}, progressCa
   let rerollProbabilities = null;
   if (processingGem.currentRerollAttempts > 0 && processingGem.remainingAttempts > 0) {
     const rerolledGem = { ...processingGem };
-    rerolledGem.currentOptions = processGem(rerolledGem); // 4개만 선택
+    rerolledGem.autoOptionSet = sampleAutoOptionSet(rerolledGem); // 4개만 선택
     rerolledGem.currentRerollAttempts -= 1;
     rerollProbabilities = calculateFromState(rerolledGem);
   }
 
   // 3. 현재 옵션만 사용했을 때의 확률
   let fixedOptionsProbabilities = null;
-  if (processingGem.currentOptions && processingGem.currentOptions.length > 0) {
-    fixedOptionsProbabilities = calculateFromState(processingGem, processingGem.currentOptions);
+  if (processingGem.autoOptionSet && processingGem.autoOptionSet.length > 0) {
+    fixedOptionsProbabilities = calculateFromState(processingGem, processingGem.autoOptionSet);
   }
 
   // 계산 완료 후 통계 로그
@@ -802,13 +821,58 @@ export function createProcessingGem(mainType, subType, grade = 'UNCOMMON') {
     maxRerollAttempts: getRerollAttempts(grade),
     currentRerollAttempts: getRerollAttempts(grade),
     processingCount: 0, // 가공 진행 횟수
-    costModifier: 0 // costIncrease -> costModifier로 변경
+    costModifier: 0, // costIncrease -> costModifier로 변경
+    totalGoldSpent: 0, // 누적 가공 비용
+    // Linked List 히스토리
+    previousState: null, // 이전 젬 상태 (linked list의 이전 노드)
+    processedWith: null // 이 상태로 만든 가공 옵션 정보 { action, description, cost }
   };
   
-  // 초기 옵션 생성하여 포함
-  newGem.currentOptions = processGem(newGem);
+  // 초기 옵션 생성하여 포함 (자동 모드용)
+  newGem.autoOptionSet = sampleAutoOptionSet(newGem);
   
   return newGem;
+}
+
+// 젬의 가공 히스토리 순회를 위한 유틸리티 함수들
+export function getProcessingHistory(gem) {
+  const history = [];
+  let current = gem;
+  
+  while (current) {
+    history.unshift({
+      gem: { ...current, previousState: null, processedWith: null }, // 순환 참조 방지
+      processedWith: current.processedWith,
+      timestamp: current.processedWith?.timestamp || null
+    });
+    current = current.previousState;
+  }
+  
+  return history;
+}
+
+export function getProcessingSteps(gem) {
+  const steps = [];
+  let current = gem;
+  
+  while (current && current.processedWith) {
+    steps.unshift(current.processedWith);
+    current = current.previousState;
+  }
+  
+  return steps;
+}
+
+export function getHistoryLength(gem) {
+  let count = 0;
+  let current = gem;
+  
+  while (current) {
+    count++;
+    current = current.previousState;
+  }
+  
+  return count;
 }
 
 /**

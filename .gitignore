@@ -24,7 +24,7 @@ dist-ssr
 *.sw?
 
 *progress_frames
-gem_calculation_progress.mp4
+gem_calculation_progress*.mp4
 probability_table.db
 probability_table.json
 probability_table.db-shm

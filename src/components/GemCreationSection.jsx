@@ -43,7 +43,6 @@ function GemCreationSection({
 
   return (
     <div className="gem-creation-section">
-      <h2>⚒️ 젬 가공 시뮬레이터</h2>
       {!processingGem ? (
         <div className="gem-creation">
           <div className="creation-modes">

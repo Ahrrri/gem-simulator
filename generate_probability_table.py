@@ -14,10 +14,18 @@ import threading
 import sqlite3
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.colors import LinearSegmentedColormap
+from matplotlib.colors import LinearSegmentedColormap, ListedColormap
 from typing import Dict, Any, Tuple, List
 from dataclasses import dataclass
 from itertools import combinations, permutations
+import shutil
+import os
+
+try:
+    import cv2
+    CV2_AVAILABLE = True
+except ImportError:
+    CV2_AVAILABLE = False
 
 # 젬 가공 확률 테이블 (4개 옵션 시스템)
 PROCESSING_POSSIBILITIES = {
@@ -401,7 +409,7 @@ class ProgressVisualizer:
         self.image_width = max_attempts * self.sub_grid_width
         self.image_height = max_rerolls * self.sub_grid_height
         
-        # 진행 상황 배열 (0: 미완료, 1: 완료)
+        # 진행 상황 배열 (0: 미완료, 1: 계산 완료, 2: 메모이제이션 히트)
         self.progress = np.zeros((self.image_height, self.image_width))
         
         # matplotlib 설정 (headless mode)
@@ -409,13 +417,43 @@ class ProgressVisualizer:
         matplotlib.use('Agg')  # GUI 없이 이미지만 생성
         plt.ioff()  # 비인터랙티브 모드
         self.fig, self.ax = plt.subplots(figsize=(15, 8), dpi=100)
-        self.im = self.ax.imshow(self.progress, cmap='RdYlGn', vmin=0, vmax=1)
         
-        # 이미지 저장 설정
-        self.save_counter = 0
-        self.frames_dir = "progress_frames"
-        import os
-        os.makedirs(self.frames_dir, exist_ok=True)
+        # 커스텀 컬러맵: 0(검은색)=미완료, 1(초록색)=계산완료, 2(파란색)=메모히트
+        colors = ['black', 'green', 'blue']
+        custom_cmap = ListedColormap(colors)
+        
+        self.im = self.ax.imshow(self.progress, cmap=custom_cmap, vmin=0, vmax=2)
+        
+        # 실시간 영상 생성 설정
+        self.frame_counter = 0
+        self.video_writer = None
+        self.output_filename = "gem_calculation_progress.mp4"
+        self.fps = 30
+        
+        # OpenCV 비디오 라이터 초기화
+        if CV2_AVAILABLE:
+            try:
+                # 이미지 크기 결정 (matplotlib figure 크기 기반)
+                self.fig.canvas.draw()
+                # Agg backend를 사용하여 배열 가져오기
+                canvas = self.fig.canvas
+                width, height = canvas.get_width_height()
+                buf = np.frombuffer(canvas.buffer_rgba(), dtype=np.uint8)
+                buf = buf.reshape((height, width, 4))  # RGBA
+                buf_rgb = buf[:, :, :3]  # RGB로 변환
+                height, width = buf_rgb.shape[:2]
+                
+                # 비디오 라이터 생성
+                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                self.video_writer = cv2.VideoWriter(self.output_filename, fourcc, self.fps, (width, height))
+                print(f"📹 실시간 영상 생성 시작: {self.output_filename} ({width}x{height})")
+                
+            except Exception as e:
+                print(f"⚠️ 비디오 라이터 초기화 실패: {e}")
+                self.video_writer = None
+        else:
+            print("⚠️ OpenCV가 설치되지 않았습니다. 실시간 영상 생성이 비활성화됩니다.")
+            self.video_writer = None
         
         # 격자 표시
         for i in range(max_attempts + 1):
@@ -436,7 +474,7 @@ class ProgressVisualizer:
         
         plt.tight_layout()
         
-    def update_progress(self, remaining_attempts, current_rerolls, sub_index):
+    def update_progress(self, remaining_attempts, current_rerolls, sub_index, progress_type='calculated'):
         """특정 위치의 서브 셀 하나를 완료로 표시"""
         # 서브그리드 내 위치 계산 (125 x 90 격자)
         sub_x = sub_index % self.sub_grid_width
@@ -446,62 +484,196 @@ class ProgressVisualizer:
         actual_x = remaining_attempts * self.sub_grid_width + sub_x
         actual_y = current_rerolls * self.sub_grid_height + sub_y
         
-        # 완료 표시
+        # 상태 표시 (1: 계산 완료, 2: 메모이제이션 히트)
         if actual_y < self.image_height and actual_x < self.image_width:
-            self.progress[actual_y, actual_x] = 1
+            if progress_type == 'memo_hit':
+                self.progress[actual_y, actual_x] = 2  # 파란색
+            else:
+                self.progress[actual_y, actual_x] = 1  # 초록색
             
     def refresh_display(self):
-        """프레임을 이미지 파일로 저장"""
+        """프레임을 실시간으로 영상에 추가"""
         self.im.set_data(self.progress)
         
-        # 프레임 저장
-        frame_filename = f"{self.frames_dir}/frame_{self.save_counter:05d}.png"
-        self.fig.savefig(frame_filename, bbox_inches='tight', dpi=100)
-        self.save_counter += 1
+        if self.video_writer:
+            try:
+                # matplotlib figure를 numpy 배열로 변환
+                self.fig.canvas.draw()
+                canvas = self.fig.canvas
+                width, height = canvas.get_width_height()
+                
+                # Agg backend에서 buffer_rgba() 사용
+                buf = np.frombuffer(canvas.buffer_rgba(), dtype=np.uint8)
+                buf = buf.reshape((height, width, 4))  # RGBA
+                
+                # RGBA를 RGB로 변환 (알파 채널 제거)
+                buf_rgb = buf[:, :, :3]
+                
+                # RGB를 BGR로 변환 (OpenCV 형식)
+                frame_bgr = cv2.cvtColor(buf_rgb, cv2.COLOR_RGB2BGR)
+                
+                # 영상에 프레임 추가
+                self.video_writer.write(frame_bgr)
+                self.frame_counter += 1
+                    
+            except Exception as e:
+                print(f"⚠️ 프레임 추가 실패: {e}")
+                # 비디오 라이터 비활성화
+                self.video_writer = None
         
-        if self.save_counter % 10 == 0:
-            print(f"📸 프레임 {self.save_counter}개 저장됨")
+        # 프레임 카운터 증가 및 로그 출력 (try 블록 외부에서)
+        if self.video_writer and self.frame_counter % 100 == 0:
+            print(f"🎬 영상 프레임 {self.frame_counter}개 추가됨")
         
+        # 프레임 생성 후 파란색(메모 히트) 셀들을 초록색으로 변경
+        self.progress[self.progress == 2] = 1
+        
+    def save_current_video(self, suffix=""):
+        """현재까지의 영상을 저장 (중간 저장용)"""
+        if self.video_writer:
+            try:
+                # 현재 비디오 라이터 해제
+                temp_writer = self.video_writer
+                self.video_writer = None
+                temp_writer.release()
+                
+                # 파일명 생성
+                if suffix:
+                    base_name = self.output_filename.replace('.mp4', f'_{suffix}.mp4')
+                else:
+                    base_name = self.output_filename.replace('.mp4', f'_frame_{self.frame_counter}.mp4')
+                    
+                # 기존 파일을 새 이름으로 복사
+                if os.path.exists(self.output_filename):
+                    shutil.copy2(self.output_filename, base_name)
+                    print(f"💾 중간 영상 저장: {base_name} ({self.frame_counter}프레임)")
+                
+                # 비디오 라이터 재초기화
+                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                self.fig.canvas.draw()
+                canvas = self.fig.canvas
+                width, height = canvas.get_width_height()
+                buf = np.frombuffer(canvas.buffer_rgba(), dtype=np.uint8)
+                buf = buf.reshape((height, width, 4))  # RGBA
+                buf_rgb = buf[:, :, :3]  # RGB로 변환
+                height, width = buf_rgb.shape[:2]
+                self.video_writer = cv2.VideoWriter(self.output_filename, fourcc, self.fps, (width, height))
+                
+            except Exception as e:
+                print(f"⚠️ 중간 영상 저장 실패: {e}")
+    
     def close(self):
+        """시각화 종료 및 최종 영상 저장"""
+        if self.video_writer:
+            self.video_writer.release()
+            print(f"🎬 최종 영상 완료: {self.output_filename} ({self.frame_counter}프레임)")
         plt.close(self.fig)
         
-    def create_video(self, output_filename="calculation_progress.mp4", fps=10):
-        """저장된 프레임들을 영상으로 합성"""
-        try:
-            import cv2
-            import glob
-            
-            # 프레임 파일들 정렬
-            frame_files = sorted(glob.glob(f"{self.frames_dir}/frame_*.png"))
-            
-            if not frame_files:
-                print("⚠️ 저장된 프레임이 없습니다.")
-                return
-            
-            # 첫 번째 프레임으로 영상 크기 결정
-            frame = cv2.imread(frame_files[0])
-            height, width, layers = frame.shape
-            
-            # 영상 작성기 초기화
-            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-            video = cv2.VideoWriter(output_filename, fourcc, fps, (width, height))
-            
-            print(f"🎬 {len(frame_files)}개 프레임으로 영상 생성 중...")
-            
-            for frame_file in frame_files:
-                frame = cv2.imread(frame_file)
-                video.write(frame)
-            
-            video.release()
-            print(f"✅ 영상 저장 완료: {output_filename}")
-            
-        except ImportError:
-            print("⚠️ OpenCV가 설치되지 않았습니다. pip install opencv-python")
-        except Exception as e:
-            print(f"⚠️ 영상 생성 실패: {e}")
 
 # 전역 시각화 객체
 visualizer = None
+
+# 메모이제이션 히트 버퍼 (배치 처리용)
+memo_hit_buffer = set()  # state_key들을 저장
+
+def update_visualization_progress(state_key: str, is_memo_hit: bool = False):
+    """시각화 진행상황 업데이트"""
+    global visualizer
+    
+    if not visualizer:
+        return
+        
+    try:
+        # key에서 상태 정보 파싱: "wp,cp,dealerA,dealerB,supportA,supportB,attempts,reroll,cost,isFirst"
+        parts = state_key.split(',')
+        if len(parts) != 10:
+            return
+            
+        wp, cp, dealerA, dealerB, supportA, supportB, attempts, reroll, cost, _ = map(int, parts)
+        
+        # 서브 인덱스 계산
+        cost_idx = {-100: 0, 0: 1, 100: 2}.get(cost, 1)
+        wp_idx = wp - 1
+        cp_idx = cp - 1
+        
+        # 4개 옵션 조합 인덱스 계산 (정확히 2개만 활성화)
+        active_options = []
+        if dealerA > 0:
+            active_options.append(('dealerA', dealerA))
+        if dealerB > 0:
+            active_options.append(('dealerB', dealerB))
+        if supportA > 0:
+            active_options.append(('supportA', supportA))
+        if supportB > 0:
+            active_options.append(('supportB', supportB))
+        
+        # 활성화된 2개 옵션의 조합 패턴에 따라 인덱스 계산
+        if len(active_options) == 2:
+            opt1_name, opt1_val = active_options[0]
+            opt2_name, opt2_val = active_options[1]
+            
+            # 6가지 조합 패턴
+            combo_patterns = [
+                ('dealerA', 'dealerB'),
+                ('dealerA', 'supportA'), 
+                ('dealerA', 'supportB'),
+                ('dealerB', 'supportA'),
+                ('dealerB', 'supportB'),
+                ('supportA', 'supportB')
+            ]
+            
+            # 현재 조합이 어떤 패턴인지 찾기
+            current_pattern = (opt1_name, opt2_name)
+            if current_pattern in combo_patterns:
+                pattern_idx = combo_patterns.index(current_pattern)
+            else:
+                # 순서가 바뀐 경우
+                reversed_pattern = (opt2_name, opt1_name)
+                if reversed_pattern in combo_patterns:
+                    pattern_idx = combo_patterns.index(reversed_pattern)
+                    opt1_val, opt2_val = opt2_val, opt1_val  # 값도 순서 맞춤
+                else:
+                    pattern_idx = 0  # fallback
+            
+            # 각 패턴 내에서 25가지 조합 (5 * 5)
+            sub_combo_idx = (opt1_val - 1) * 5 + (opt2_val - 1)
+            option_idx = pattern_idx * 25 + sub_combo_idx
+        else:
+            option_idx = 0  # fallback
+        
+        sub_index = (cost_idx * 5 * 5 * 150 + 
+                    wp_idx * 5 * 150 + 
+                    cp_idx * 150 + 
+                    option_idx)
+        
+        # 메모이제이션 히트 여부에 따라 다른 값으로 업데이트
+        if is_memo_hit:
+            visualizer.update_progress(attempts, reroll, sub_index, progress_type='memo_hit')
+        else:
+            visualizer.update_progress(attempts, reroll, sub_index, progress_type='calculated')
+            
+    except Exception as e:
+        # 시각화 오류가 전체 계산을 망가뜨리지 않도록
+        print(f"시각화 업데이트 오류: {e}")
+        pass
+
+def flush_memo_hits_to_visualization():
+    """버퍼에 쌓인 메모 히트들을 일괄 시각화 처리"""
+    global memo_hit_buffer
+    
+    if not memo_hit_buffer:
+        return
+        
+    memo_hit_count = len(memo_hit_buffer)
+    
+    # 모든 메모 히트를 시각화
+    for state_key in memo_hit_buffer:
+        update_visualization_progress(state_key, is_memo_hit=True)
+    
+    # 버퍼 클리어
+    memo_hit_buffer.clear()
+    
+    return memo_hit_count
 
 def state_to_key(gem: GemState) -> str:
     """젬 상태를 키 문자열로 변환 (4개 옵션 시스템, 리롤 횟수는 4 이상을 4로 통일)"""
@@ -553,7 +725,7 @@ def calculate_option_selection_probabilities(available_options: List[dict], gem:
     active_options.sort(key=lambda x: (-x[1], x[0]))  # 레벨 내림차순, 이름 오름차순
     
     # 일반화된 이름 매핑 생성
-    for i, (opt_name, level) in enumerate(active_options):
+    for i, (opt_name, _) in enumerate(active_options):
         generic_name = f"option{i+1}"  # option1, option2 등
         for action_type in ['+1', '+2', '+3', '+4', '-1', 'change']:
             actual = f"{opt_name}_{action_type}"
@@ -634,11 +806,14 @@ def calculate_option_selection_probabilities(available_options: List[dict], gem:
     return mapped_result
 
 def calculate_probabilities(gem: GemState, memo: Dict[str, Dict]) -> Dict[str, float]:
-    """재귀적으로 확률을 계산. 여기서의 확률은 아직 옵션 4개를 보지 못한 상태임"""
+    """재귀적으로 확률을 계산. 매우 중요: 여기서의 확률은 아직 옵션 4개를 보지 못한 상태임"""
     global calculation_counter, visualizer
     
     key = state_to_key(gem)
     if key in memo:
+        # 메모이제이션 히트 - 버퍼에 저장 (배치 처리용)
+        global memo_hit_buffer
+        memo_hit_buffer.add(key)
         return memo[key]['probabilities']
     
     # 목표 조건들
@@ -672,128 +847,106 @@ def calculate_probabilities(gem: GemState, memo: Dict[str, Dict]) -> Dict[str, f
         }
         # 새로운 계산 완료 시 진행 상황 출력
         calculation_counter += 1
-        print(f"계산 완료: {calculation_counter:>5d}개 상태 ({key}) sum8+: {base_probabilities['sum8+']:.6f}, sum9+: {base_probabilities['sum9+']:.6f}, relic+: {base_probabilities['relic+']:.6f}, ancient+: {base_probabilities['ancient+']:.6f}")
+        
+        # 버퍼에 쌓인 메모 히트들을 일괄 처리
+        memo_hit_count = flush_memo_hits_to_visualization()
+        
+        print(f"계산 완료: {calculation_counter:>5d}개 상태 ({key}) sum8+: {base_probabilities['sum8+']:.6f}, sum9+: {base_probabilities['sum9+']:.6f}, relic+: {base_probabilities['relic+']:.6f}, ancient+: {base_probabilities['ancient+']:.6f}, 메모히트: {memo_hit_count}개")
         
         # 시각화 업데이트 (기저 조건 계산 완료 시)
+        update_visualization_progress(key, is_memo_hit=False)
+        
         if visualizer:
-            # key에서 상태 정보 파싱
-            parts = key.split(',')
-            if len(parts) == 10:
-                wp, cp, dealerA, dealerB, supportA, supportB, attempts, reroll, cost, isFirst = map(int, parts)
-                
-                cost_idx = {-100: 0, 0: 1, 100: 2}.get(cost, 1)
-                wp_idx = wp - 1
-                cp_idx = cp - 1
-                
-                # 4개 옵션 조합 인덱스 계산 (정확히 2개만 활성화)
-                active_options = []
-                if dealerA > 0:
-                    active_options.append(('dealerA', dealerA))
-                if dealerB > 0:
-                    active_options.append(('dealerB', dealerB))
-                if supportA > 0:
-                    active_options.append(('supportA', supportA))
-                if supportB > 0:
-                    active_options.append(('supportB', supportB))
-                
-                if len(active_options) == 2:
-                    opt1_name, opt1_val = active_options[0]
-                    opt2_name, opt2_val = active_options[1]
-                    
-                    combo_patterns = [
-                        ('dealerA', 'dealerB'), ('dealerA', 'supportA'), ('dealerA', 'supportB'),
-                        ('dealerB', 'supportA'), ('dealerB', 'supportB'), ('supportA', 'supportB')
-                    ]
-                    
-                    current_pattern = (opt1_name, opt2_name)
-                    if current_pattern in combo_patterns:
-                        pattern_idx = combo_patterns.index(current_pattern)
-                    else:
-                        reversed_pattern = (opt2_name, opt1_name)
-                        if reversed_pattern in combo_patterns:
-                            pattern_idx = combo_patterns.index(reversed_pattern)
-                            opt1_val, opt2_val = opt2_val, opt1_val
-                        else:
-                            pattern_idx = 0
-                    
-                    sub_combo_idx = (opt1_val - 1) * 5 + (opt2_val - 1)
-                    option_idx = pattern_idx * 25 + sub_combo_idx
-                else:
-                    option_idx = 0
-                
-                sub_index = (cost_idx * 5 * 5 * 150 + 
-                            wp_idx * 5 * 150 + 
-                            cp_idx * 150 + 
-                            option_idx)
-                
-                visualizer.update_progress(attempts, reroll, sub_index)
-                
-                if calculation_counter % 75 == 0:
-                    visualizer.refresh_display()
+            visualizer.refresh_display()
         
         return base_probabilities
     
     # 실제 게임 로직: 4개 조합을 뽑고 그 중 하나를 25% 확률로 선택
     result = {target: 0.0 for target in targets}
     
-    # 현재 옵션으로 진행하는 경우의 기댓값 계산
-    def calculate_expected_value_with_options(options):
-        expected = {target: 0.0 for target in targets}
-        selection_probs = calculate_option_selection_probabilities(options, gem)
-        
-        for option in options:
-            selection_prob = selection_probs[option['action']]
-            if selection_prob > 0:
-                next_gem = apply_processing(gem, option['action'])
-                future_probs = calculate_probabilities(next_gem, memo)
-                
-                for target in targets:
-                    expected[target] += selection_prob * future_probs[target]
-        
-        return expected
-    
-    # 현재 옵션으로 진행하는 경우
-    current_expected = calculate_expected_value_with_options(available_options)
-    
     # reroll이 가능한지 확인 (첫 시도에서는 불가능)
     can_reroll = gem.currentRerollAttempts > 0 and gem.remainingAttempts > 0 and not gem.isFirstProcessing
     
-    # 각 목표별로 최적 선택 계산: 현재 상태 vs 진행 vs 리롤
-    result = {}
+    # 리롤 후 상태 미리 준비
+    rerolled_gem = None
+    reroll_future_probs = None
+    if can_reroll:
+        actual_reroll_after = gem.currentRerollAttempts - 1
+        rerolled_gem = GemState(
+            willpower=gem.willpower,
+            corePoint=gem.corePoint,
+            dealerA=gem.dealerA,
+            dealerB=gem.dealerB,
+            supportA=gem.supportA,
+            supportB=gem.supportB,
+            remainingAttempts=gem.remainingAttempts,
+            currentRerollAttempts=actual_reroll_after,
+            costModifier=gem.costModifier,
+            isFirstProcessing=False  # 리롤 후에도 첫 가공이 아님
+        )
+        reroll_future_probs = calculate_probabilities(rerolled_gem, memo)
     
-    for target in targets:
-        options_for_target = []
+    # 4개 이하면 모든 옵션이 선택됨
+    if len(available_options) <= 4:
+        # 각 옵션별로 진행했을 때의 확률 계산
+        for target in targets:
+            progress_value = 0.0
+            for option in available_options:
+                next_gem = apply_processing(gem, option['action'])
+                future_probs = calculate_probabilities(next_gem, memo)
+                progress_value += future_probs[target] / len(available_options)
+            
+            # 현재 상태, 진행, 리롤 중 최적 선택
+            options_for_target = [base_probabilities[target], progress_value]
+            if can_reroll and reroll_future_probs:
+                options_for_target.append(reroll_future_probs[target])
+            
+            result[target] = max(options_for_target)
+    else:
+        # 4개 초과면 모든 4개 조합을 고려
+        from itertools import combinations
         
-        # 선택지 1: 현재 상태에서 종료 (이미 달성했으면 1.0, 아니면 0.0)
-        current_value = base_probabilities[target]
-        options_for_target.append(current_value)
+        # 모든 target에 대한 결과 초기화
+        for target in targets:
+            result[target] = 0.0
         
-        # 선택지 2: 가공 진행
-        progress_value = current_expected[target]
-        options_for_target.append(progress_value)
+        # 조합별 계산 캐싱
+        combo_cache = {}  # combo_indices -> {option_action: future_probs}
         
-        # 선택지 3: 리롤 (가능한 경우)
-        if can_reroll:
-            actual_reroll_after = gem.currentRerollAttempts - 1
-            rerolled_gem = GemState(
-                willpower=gem.willpower,
-                corePoint=gem.corePoint,
-                dealerA=gem.dealerA,
-                dealerB=gem.dealerB,
-                supportA=gem.supportA,
-                supportB=gem.supportB,
-                remainingAttempts=gem.remainingAttempts,
-                currentRerollAttempts=actual_reroll_after,
-                costModifier=gem.costModifier,
-                isFirstProcessing=False  # 리롤 후에도 첫 가공이 아님
+        # 모든 4개 조합에 대해 (한 번만 순회)
+        for combo_indices in combinations(range(len(available_options)), 4):
+            combo_options = [available_options[i] for i in combo_indices]
+            
+            # 이 4개 조합이 뽑힐 확률
+            combo_prob = calculate_4combo_probability(
+                list(combo_indices), 
+                [opt['probability'] for opt in available_options]
             )
             
-            reroll_future_probs = calculate_probabilities(rerolled_gem, memo)
-            reroll_value = reroll_future_probs[target]
-            options_for_target.append(reroll_value)
-        
-        # 최적 선택
-        result[target] = max(options_for_target)
+            # 이 조합의 각 옵션별 미래 확률 계산 (한 번만)
+            if combo_indices not in combo_cache:
+                combo_cache[combo_indices] = {}
+                for option in combo_options:
+                    next_gem = apply_processing(gem, option['action'])
+                    future_probs = calculate_probabilities(next_gem, memo)
+                    combo_cache[combo_indices][option['action']] = future_probs
+            
+            cached_future_probs = combo_cache[combo_indices]
+            
+            # 모든 target에 대해 이 조합의 기여도 계산
+            for target in targets:
+                # 이 조합에서의 진행 확률 (4개 중 균등 선택)
+                combo_progress_value = 0.0
+                for option in combo_options:
+                    combo_progress_value += cached_future_probs[option['action']][target] * 0.25
+                
+                # 이 조합에서 최적 선택 (현재 상태, 진행, 리롤 중)
+                combo_options_list = [base_probabilities[target], combo_progress_value]
+                if can_reroll and reroll_future_probs:
+                    combo_options_list.append(reroll_future_probs[target])
+                
+                combo_best = max(combo_options_list)
+                result[target] += combo_prob * combo_best
     
     # 옵션 선택 확률도 함께 저장
     selection_probs = calculate_option_selection_probabilities(available_options, gem)
@@ -815,75 +968,22 @@ def calculate_probabilities(gem: GemState, memo: Dict[str, Dict]) -> Dict[str, f
     
     # 새로운 계산 완료 시 진행 상황 출력
     calculation_counter += 1
-    print(f"계산 완료: {calculation_counter:>5d}개 상태 ({key}) sum8+: {result['sum8+']:.6f}, sum9+: {result['sum9+']:.6f}, relic+: {result['relic+']:.6f}, ancient+: {result['ancient+']:.6f}")
+    
+    # 버퍼에 쌓인 메모 히트들을 일괄 처리
+    memo_hit_count = flush_memo_hits_to_visualization()
+    
+    print(f"계산 완료: {calculation_counter:>5d}개 상태 ({key}) sum8+: {result['sum8+']:.6f}, sum9+: {result['sum9+']:.6f}, relic+: {result['relic+']:.6f}, ancient+: {result['ancient+']:.6f}, 메모히트: {memo_hit_count}개")
     
     # 시각화 업데이트 (실제 계산 완료 시)
+    update_visualization_progress(key, is_memo_hit=False)
+    
+    # 화면 갱신은 가끔만
     if visualizer:
-        # key에서 상태 정보 파싱: "wp,cp,dealerA,dealerB,supportA,supportB,attempts,reroll,cost,isFirst"
-        parts = key.split(',')
-        if len(parts) == 10:
-            wp, cp, dealerA, dealerB, supportA, supportB, attempts, reroll, cost, isFirst = map(int, parts)
-            
-            # 서브 인덱스 계산
-            cost_idx = {-100: 0, 0: 1, 100: 2}.get(cost, 1)
-            wp_idx = wp - 1
-            cp_idx = cp - 1
-            
-            # 4개 옵션 조합 인덱스 계산 (정확히 2개만 활성화)
-            active_options = []
-            if dealerA > 0:
-                active_options.append(('dealerA', dealerA))
-            if dealerB > 0:
-                active_options.append(('dealerB', dealerB))
-            if supportA > 0:
-                active_options.append(('supportA', supportA))
-            if supportB > 0:
-                active_options.append(('supportB', supportB))
-            
-            # 활성화된 2개 옵션의 조합 패턴에 따라 인덱스 계산
-            if len(active_options) == 2:
-                opt1_name, opt1_val = active_options[0]
-                opt2_name, opt2_val = active_options[1]
-                
-                # 6가지 조합 패턴
-                combo_patterns = [
-                    ('dealerA', 'dealerB'),
-                    ('dealerA', 'supportA'), 
-                    ('dealerA', 'supportB'),
-                    ('dealerB', 'supportA'),
-                    ('dealerB', 'supportB'),
-                    ('supportA', 'supportB')
-                ]
-                
-                # 현재 조합이 어떤 패턴인지 찾기
-                current_pattern = (opt1_name, opt2_name)
-                if current_pattern in combo_patterns:
-                    pattern_idx = combo_patterns.index(current_pattern)
-                else:
-                    # 순서가 바뀐 경우
-                    reversed_pattern = (opt2_name, opt1_name)
-                    if reversed_pattern in combo_patterns:
-                        pattern_idx = combo_patterns.index(reversed_pattern)
-                        opt1_val, opt2_val = opt2_val, opt1_val  # 값도 순서 맞춤
-                    else:
-                        pattern_idx = 0  # fallback
-                
-                # 각 패턴 내에서 25가지 조합 (5 * 5)
-                sub_combo_idx = (opt1_val - 1) * 5 + (opt2_val - 1)
-                option_idx = pattern_idx * 25 + sub_combo_idx
-            else:
-                option_idx = 0  # fallback
-            
-            sub_index = (cost_idx * 5 * 5 * 150 + 
-                        wp_idx * 5 * 150 + 
-                        cp_idx * 150 + 
-                        option_idx)
-            
-            visualizer.update_progress(attempts, reroll, sub_index)
-            
-            # 화면 갱신은 가끔만
-            if calculation_counter % 100 == 0:
-                visualizer.refresh_display()
+        visualizer.refresh_display()
+        
+    # 중간 영상 저장 (1만개마다)
+    if calculation_counter % 10000 == 0 and visualizer:
+        visualizer.save_current_video(f"checkpoint_{calculation_counter}")
     
     return result
 
@@ -901,6 +1001,7 @@ def generate_probability_table(enable_visualization=True):
         try:
             visualizer = ProgressVisualizer(max_attempts=10, max_rerolls=5)
             print("📊 진행 상황 시각화 활성화")
+            time.sleep(3)
         except Exception as e:
             print(f"⚠️ 시각화 초기화 실패: {e}")
             visualizer = None
@@ -925,7 +1026,10 @@ def generate_probability_table(enable_visualization=True):
                                             continue
                                                                                 
                                         # remainingAttempts가 5,7,9일 때만 isFirstProcessing이 True일 수 있음
-                                        for isFirstProcessing in ([True, False] if remainingAttempts in [5, 7, 9] else [False]):
+                                        # 그리고 isFirstProcessing=True일 때는 모든 값의 합이 4여야 함 (초기 상태)
+                                        total_values = willpower + corePoint + dealerA + dealerB + supportA + supportB
+                                        possible_first = [True, False] if (remainingAttempts in [5, 7, 9] and total_values == 4) else [False]
+                                        for isFirstProcessing in possible_first:
                                             try:
                                                 gem = GemState(
                                                     willpower=willpower,
@@ -1233,9 +1337,7 @@ if __name__ == "__main__":
         print(f"예: SELECT * FROM gem_states WHERE prob_ancient > 0.8 ORDER BY prob_ancient DESC;")
         
     finally:
-        # 시각화 정리 및 영상 생성
+        # 시각화 정리
         if visualizer:
-            if enable_viz:
-                print("🎬 계산 완료! 영상을 생성합니다...")
-                visualizer.create_video("gem_calculation_progress.mp4", fps=30)
+            print("🎬 시각화 완료!")
             visualizer.close()

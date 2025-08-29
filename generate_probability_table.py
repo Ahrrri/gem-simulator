@@ -390,9 +390,8 @@ def calculate_4combo_probability(combo_indices: List[int], all_weights: List[flo
 
 # 진행 상황 추적을 위한 전역 변수
 calculation_counter = 0
+start_time = None
 
-# 옵션 선택 확률 메모이제이션
-option_selection_memo = {}
 
 class ProgressVisualizer:
     def __init__(self, max_attempts=10, max_rerolls=5):
@@ -662,7 +661,7 @@ def flush_memo_hits_to_visualization():
     global memo_hit_buffer
     
     if not memo_hit_buffer:
-        return
+        return 0
         
     memo_hit_count = len(memo_hit_buffer)
     
@@ -675,43 +674,10 @@ def flush_memo_hits_to_visualization():
     
     return memo_hit_count
 
-def state_to_key(gem: GemState) -> str:
-    """젬 상태를 키 문자열로 변환 (4개 옵션 시스템, 리롤 횟수는 4 이상을 4로 통일)"""
-    # 리롤 횟수는 4 이상을 모두 4로 간주 (메모이제이션 효율성)
-    capped_reroll = min(4, gem.currentRerollAttempts)
-    first_processing = 1 if gem.isFirstProcessing else 0
-    return f"{gem.willpower},{gem.corePoint},{gem.dealerA},{gem.dealerB},{gem.supportA},{gem.supportB},{gem.remainingAttempts},{capped_reroll},{gem.costModifier},{first_processing}"
-
-def get_option_pattern_key(gem: GemState) -> str:
-    """젬의 전체 상태를 기반으로 패턴 키 생성"""
-    levels = []
-    if gem.dealerA > 0:
-        levels.append(gem.dealerA)
-    if gem.dealerB > 0:
-        levels.append(gem.dealerB)
-    if gem.supportA > 0:
-        levels.append(gem.supportA)
-    if gem.supportB > 0:
-        levels.append(gem.supportB)
-    
-    # 레벨들을 정렬해서 패턴으로 만들기
-    levels.sort(reverse=True)  # 높은 레벨부터
-    
-    # 모든 관련 상태 포함
-    return (f"levels:{','.join(map(str, levels))}"
-            f",wp:{gem.willpower},cp:{gem.corePoint}"
-            f",att:{gem.remainingAttempts}"
-            f",reroll:{min(4, gem.currentRerollAttempts)}"  # 리롤은 4 이상을 4로 통일
-            f",cost:{gem.costModifier}")
-
-def calculate_option_selection_probabilities(available_options: List[dict], gem: GemState) -> Dict[str, float]:
-    """옵션 풀에서 각 옵션이 선택될 확률을 계산 (메모이제이션)"""
-    # 우선 일반적인 패턴으로 변환 (level1, level2 형태)
+def create_generalized_gem_pattern(gem: GemState) -> str:
+    """젬을 일반화된 패턴으로 변환 (combo_memo용)"""
+    # 활성 옵션들 추출
     active_options = []
-    option_to_generic = {}  # 실제 옵션명 -> 일반화된 이름
-    generic_to_option = {}  # 일반화된 이름 -> 실제 옵션명
-    
-    # 활성 옵션들을 레벨 순으로 정렬하여 일반화
     if gem.dealerA > 0:
         active_options.append(('dealerA', gem.dealerA))
     if gem.dealerB > 0:
@@ -721,91 +687,27 @@ def calculate_option_selection_probabilities(available_options: List[dict], gem:
     if gem.supportB > 0:
         active_options.append(('supportB', gem.supportB))
     
-    # 레벨 기준으로 정렬
-    active_options.sort(key=lambda x: (-x[1], x[0]))  # 레벨 내림차순, 이름 오름차순
+    # 레벨 기준으로 정렬 (높은 레벨부터)
+    active_options.sort(key=lambda x: (-x[1], x[0]))
     
-    # 일반화된 이름 매핑 생성
-    for i, (opt_name, _) in enumerate(active_options):
-        generic_name = f"option{i+1}"  # option1, option2 등
-        for action_type in ['+1', '+2', '+3', '+4', '-1', 'change']:
-            actual = f"{opt_name}_{action_type}"
-            generic = f"{generic_name}_{action_type}"
-            option_to_generic[actual] = generic
-            generic_to_option[generic] = actual
+    # 일반화된 패턴 생성
+    option_levels = [str(level) for _, level in active_options]
+    option_pattern = ','.join(option_levels) if option_levels else '0,0'
     
-    # 일반화된 available_options 생성
-    generic_available = []
-    for opt in available_options:
-        if opt['action'] in option_to_generic:
-            generic_available.append({
-                'action': option_to_generic[opt['action']],
-                'probability': opt['probability']
-            })
-        else:
-            # willpower, corePoint, cost, maintain, reroll은 그대로
-            generic_available.append(opt)
+    # remainingAttempts는 1보다 큰지만 확인
+    has_attempts = 1 if gem.remainingAttempts > 1 else 0
     
-    # 패턴 키 생성 (일반화된 버전)
-    pattern_key = get_option_pattern_key(gem)
-    
-    global option_selection_memo
-    if pattern_key in option_selection_memo:
-        # 캐시된 일반화된 결과를 실제 옵션명으로 변환
-        cached_result = option_selection_memo[pattern_key]
-        mapped_result = {}
-        
-        for generic_action, prob in cached_result.items():
-            if generic_action in generic_to_option:
-                actual_action = generic_to_option[generic_action]
-                mapped_result[actual_action] = prob
-            else:
-                # willpower, corePoint 등은 그대로
-                mapped_result[generic_action] = prob
-        
-        return mapped_result
-    
-    selection_probs = {}
-    
-    # 일반화된 옵션들로 계산 수행
-    if len(generic_available) <= 4:
-        equal_prob = 1.0 / len(generic_available)
-        for option in generic_available:
-            selection_probs[option['action']] = equal_prob
-    else:
-        # 4개 이상이면 모든 4개 조합에 대해 계산
-        option_indices = list(range(len(generic_available)))
-        
-        # 각 옵션의 선택 확률 초기화
-        for option in generic_available:
-            selection_probs[option['action']] = 0.0
-        
-        for combo_indices in combinations(option_indices, 4):
-            combo_options = [generic_available[i] for i in combo_indices]
-            
-            # 이 4개 조합이 뽑힐 확률 계산
-            combo_prob = calculate_4combo_probability(list(combo_indices), 
-                                                     [opt['probability'] for opt in generic_available])
-            
-            # 4개 중 하나를 균등하게 선택 (25% 확률)
-            for option in combo_options:
-                selection_probs[option['action']] += combo_prob * 0.25
-    
-    # 일반화된 형태로 메모이제이션에 저장
-    option_selection_memo[pattern_key] = selection_probs
-    
-    # 실제 옵션명으로 변환하여 반환
-    mapped_result = {}
-    for generic_action, prob in selection_probs.items():
-        if generic_action in generic_to_option:
-            actual_action = generic_to_option[generic_action]
-            mapped_result[actual_action] = prob
-        else:
-            # willpower, corePoint 등은 그대로
-            mapped_result[generic_action] = prob
-    
-    return mapped_result
+    return f"{gem.willpower},{gem.corePoint},{option_pattern},{has_attempts},{gem.costModifier}"
 
-def calculate_probabilities(gem: GemState, memo: Dict[str, Dict]) -> Dict[str, float]:
+def state_to_key(gem: GemState) -> str:
+    """젬 상태를 키 문자열로 변환 (4개 옵션 시스템, 리롤 횟수는 4 이상을 4로 통일)"""
+    # 리롤 횟수는 4 이상을 모두 4로 간주 (메모이제이션 효율성)
+    capped_reroll = min(4, gem.currentRerollAttempts)
+    first_processing = 1 if gem.isFirstProcessing else 0
+    return f"{gem.willpower},{gem.corePoint},{gem.dealerA},{gem.dealerB},{gem.supportA},{gem.supportB},{gem.remainingAttempts},{capped_reroll},{gem.costModifier},{first_processing}"
+
+
+def calculate_probabilities(gem: GemState, memo: Dict[str, Dict], combo_memo: Dict[str, Dict]) -> Dict[str, float]:
     """재귀적으로 확률을 계산. 매우 중요: 여기서의 확률은 아직 옵션 4개를 보지 못한 상태임"""
     global calculation_counter, visualizer
     
@@ -851,13 +753,29 @@ def calculate_probabilities(gem: GemState, memo: Dict[str, Dict]) -> Dict[str, f
         # 버퍼에 쌓인 메모 히트들을 일괄 처리
         memo_hit_count = flush_memo_hits_to_visualization()
         
-        print(f"계산 완료: {calculation_counter:>5d}개 상태 ({key}) sum8+: {base_probabilities['sum8+']:.6f}, sum9+: {base_probabilities['sum9+']:.6f}, relic+: {base_probabilities['relic+']:.6f}, ancient+: {base_probabilities['ancient+']:.6f}, 메모히트: {memo_hit_count}개")
+        available_options = get_available_options(gem)
+        total_combo_count = sum(len(combos) for combos in combo_memo.values())
+        elapsed_time = time.time() - start_time if start_time else 0
+        avg_time_per_state = elapsed_time / calculation_counter if calculation_counter > 0 else 0
+        from math import comb
+        available_count = len(available_options)
+        combo_4_count = comb(available_count, 4) if available_count >= 4 else 0
+        print(f"기저 조건: {calculation_counter:>5d}개 상태 ({key}) "
+              f"sum8+: {base_probabilities['sum8+']:.6f}, sum9+: {base_probabilities['sum9+']:.6f}, "
+              f"relic+: {base_probabilities['relic+']:.6f}, ancient+: {base_probabilities['ancient+']:.6f}, "
+              f"memo_hit: {memo_hit_count:2d}개, combo_memo: {len(combo_memo)}패턴/{total_combo_count}조합, "
+              f"options: {available_count}개, 4조합: {combo_4_count}개, "
+              f"경과시간: {elapsed_time:.2f}s, 평균: {avg_time_per_state * 1000:.3f}s/1000 상태")
         
         # 시각화 업데이트 (기저 조건 계산 완료 시)
         update_visualization_progress(key, is_memo_hit=False)
         
         if visualizer:
             visualizer.refresh_display()
+            
+        # 중간 영상 저장 (1만개마다)
+        if calculation_counter % 10000 == 0 and visualizer:
+            visualizer.save_current_video(f"checkpoint_{calculation_counter}")
         
         return base_probabilities
     
@@ -884,16 +802,17 @@ def calculate_probabilities(gem: GemState, memo: Dict[str, Dict]) -> Dict[str, f
             costModifier=gem.costModifier,
             isFirstProcessing=False  # 리롤 후에도 첫 가공이 아님
         )
-        reroll_future_probs = calculate_probabilities(rerolled_gem, memo)
+        reroll_future_probs = calculate_probabilities(rerolled_gem, memo, combo_memo)
     
-    # 4개 이하면 모든 옵션이 선택됨
+    # 4개 이하인 경우 (현실적으로 거의 없음)
     if len(available_options) <= 4:
+        print(f"⚠️ 드문 경우: 옵션이 {len(available_options)}개만 있음. 젬 상태: {key}")
         # 각 옵션별로 진행했을 때의 확률 계산
         for target in targets:
             progress_value = 0.0
             for option in available_options:
                 next_gem = apply_processing(gem, option['action'])
-                future_probs = calculate_probabilities(next_gem, memo)
+                future_probs = calculate_probabilities(next_gem, memo, combo_memo)
                 progress_value += future_probs[target] / len(available_options)
             
             # 현재 상태, 진행, 리롤 중 최적 선택
@@ -910,35 +829,43 @@ def calculate_probabilities(gem: GemState, memo: Dict[str, Dict]) -> Dict[str, f
         for target in targets:
             result[target] = 0.0
         
-        # 조합별 계산 캐싱
-        combo_cache = {}  # combo_indices -> {option_action: future_probs}
+        # 전역 젬 패턴별 조합 확률 메모이제이션 사용
+        generalized_gem_pattern = create_generalized_gem_pattern(gem)
         
-        # 모든 4개 조합에 대해 (한 번만 순회)
-        for combo_indices in combinations(range(len(available_options)), 4):
+        # 조합 확률들 계산 또는 캐시에서 가져오기
+        combo_probs = {}
+        if generalized_gem_pattern in combo_memo:
+            # 캐시된 조합 확률들 사용
+            combo_probs = combo_memo[generalized_gem_pattern]
+        else:
+            # 새로운 젬 패턴 - 모든 4개 조합 확률 미리 계산
+            for combo_indices in combinations(range(len(available_options)), 4):
+                combo_prob = calculate_4combo_probability(
+                    list(combo_indices), 
+                    [opt['probability'] for opt in available_options]
+                )
+                combo_probs[combo_indices] = combo_prob
+            
+            # 조합 확률들을 메모이제이션에 저장
+            combo_memo[generalized_gem_pattern] = combo_probs
+        
+        # 모든 4개 조합에 대해 실제 확률 계산
+        for combo_indices, combo_prob in combo_probs.items():
             combo_options = [available_options[i] for i in combo_indices]
             
-            # 이 4개 조합이 뽑힐 확률
-            combo_prob = calculate_4combo_probability(
-                list(combo_indices), 
-                [opt['probability'] for opt in available_options]
-            )
-            
-            # 이 조합의 각 옵션별 미래 확률 계산 (한 번만)
-            if combo_indices not in combo_cache:
-                combo_cache[combo_indices] = {}
-                for option in combo_options:
-                    next_gem = apply_processing(gem, option['action'])
-                    future_probs = calculate_probabilities(next_gem, memo)
-                    combo_cache[combo_indices][option['action']] = future_probs
-            
-            cached_future_probs = combo_cache[combo_indices]
+            # 이 조합의 각 옵션별 미래 확률 계산
+            combo_future_probs = {}
+            for option in combo_options:
+                next_gem = apply_processing(gem, option['action'])
+                future_probs = calculate_probabilities(next_gem, memo, combo_memo)
+                combo_future_probs[option['action']] = future_probs
             
             # 모든 target에 대해 이 조합의 기여도 계산
             for target in targets:
                 # 이 조합에서의 진행 확률 (4개 중 균등 선택)
                 combo_progress_value = 0.0
                 for option in combo_options:
-                    combo_progress_value += cached_future_probs[option['action']][target] * 0.25
+                    combo_progress_value += combo_future_probs[option['action']][target] * 0.25
                 
                 # 이 조합에서 최적 선택 (현재 상태, 진행, 리롤 중)
                 combo_options_list = [base_probabilities[target], combo_progress_value]
@@ -947,9 +874,18 @@ def calculate_probabilities(gem: GemState, memo: Dict[str, Dict]) -> Dict[str, f
                 
                 combo_best = max(combo_options_list)
                 result[target] += combo_prob * combo_best
+        
+        # 선택 확률 계산 (조합 확률 재사용)
+        selection_probs = {opt['action']: 0.0 for opt in available_options}
+        for combo_indices, combo_prob in combo_probs.items():
+            for idx in combo_indices:
+                selection_probs[available_options[idx]['action']] += combo_prob * 0.25
     
-    # 옵션 선택 확률도 함께 저장
-    selection_probs = calculate_option_selection_probabilities(available_options, gem)
+    # 4개 이하인 경우에는 별도로 선택 확률 계산
+    if len(available_options) <= 4:
+        print(f"⚠️ 드문 경우: selectionProbability를 균등 분할 계산")
+        selection_prob = 1.0 / len(available_options)
+        selection_probs = {opt['action']: selection_prob for opt in available_options}
     
     # availableOptions에 선택 확률 추가
     options_with_probs = []
@@ -971,8 +907,19 @@ def calculate_probabilities(gem: GemState, memo: Dict[str, Dict]) -> Dict[str, f
     
     # 버퍼에 쌓인 메모 히트들을 일괄 처리
     memo_hit_count = flush_memo_hits_to_visualization()
-    
-    print(f"계산 완료: {calculation_counter:>5d}개 상태 ({key}) sum8+: {result['sum8+']:.6f}, sum9+: {result['sum9+']:.6f}, relic+: {result['relic+']:.6f}, ancient+: {result['ancient+']:.6f}, 메모히트: {memo_hit_count}개")
+        
+    total_combo_count = sum(len(combos) for combos in combo_memo.values())
+    elapsed_time = time.time() - start_time if start_time else 0
+    avg_time_per_state = elapsed_time / calculation_counter if calculation_counter > 0 else 0
+    from math import comb
+    available_count = len(available_options)
+    combo_4_count = comb(available_count, 4) if available_count >= 4 else 0
+    print(f"계산 완료: {calculation_counter:>5d}개 상태 ({key}) "
+          f"sum8+: {result['sum8+']:.6f}, sum9+: {result['sum9+']:.6f}, "
+          f"relic+: {result['relic+']:.6f}, ancient+: {result['ancient+']:.6f}, "
+          f"memo_hit: {memo_hit_count:2d}개, combo_memo: {len(combo_memo)}패턴/{total_combo_count}조합, "
+          f"options: {available_count}개, 4조합: {combo_4_count}개, "
+          f"경과시간: {elapsed_time:.2f}s, 평균: {avg_time_per_state * 1000:.3f}s/1000 상태")
     
     # 시각화 업데이트 (실제 계산 완료 시)
     update_visualization_progress(key, is_memo_hit=False)
@@ -990,11 +937,11 @@ def calculate_probabilities(gem: GemState, memo: Dict[str, Dict]) -> Dict[str, f
 def generate_probability_table(enable_visualization=True):
     """모든 가능한 젬 상태에 대한 확률 테이블 생성"""
     print("🎲 확률 테이블 생성 시작...")
-    start_time = time.time()
     
     # 전역 카운터 초기화
-    global calculation_counter, visualizer
+    global calculation_counter, visualizer, start_time
     calculation_counter = 0
+    start_time = time.time()  # 전역 시작 시간 설정
     
     # 시각화 초기화
     if enable_visualization:
@@ -1008,9 +955,10 @@ def generate_probability_table(enable_visualization=True):
     
     probability_table = {}
     memo = {}
+    combo_memo = {}  # 조합 메모이제이션
     total_states = 0
     
-    # 모든 가능한 상태 순회 (Bottom-up: reroll부터, 그다음 remainingAttempts가 작은 것부터). 5*13*3*5*5*6*5*5=562500
+    # 모든 가능한 상태 순회 (Bottom-up: reroll부터, 그다음 remainingAttempts가 작은 것부터). 5*10*3*5*5*6*5*5+a=562500+a
     for currentRerollAttempts in range(5):  # 0~4 (리롤 횟수를 가장 먼저)
         for remainingAttempts in range(10):  # 0~9 (JavaScript와 일치)
             for costModifier in [-100, 0, 100]:  # 가능한 비용 수정값
@@ -1044,7 +992,7 @@ def generate_probability_table(enable_visualization=True):
                                                     isFirstProcessing=isFirstProcessing
                                                 )
                                                 # 확률 계산
-                                                probs = calculate_probabilities(gem, memo)
+                                                probs = calculate_probabilities(gem, memo, combo_memo)
                                                 
                                                 # 상태 키 생성 및 저장 (확률 + 사용가능 옵션)
                                                 state_key = state_to_key(gem)
@@ -1083,22 +1031,8 @@ def generate_probability_table(enable_visualization=True):
                                                 else:
                                                     print(f"memo에 {state_key} 키가 없음")
                                                 
-                                                # option_selection_memo 상태 출력
-                                                pattern_key = get_option_pattern_key(gem)
-                                                print(f"\npattern_key: {pattern_key}")
-                                                print(f"option_selection_memo 크기: {len(option_selection_memo)}")
-                                                
-                                                if pattern_key in option_selection_memo:
-                                                    print(f"option_selection_memo[{pattern_key}] 내용:")
-                                                    cached_probs = option_selection_memo[pattern_key]
-                                                    for action, prob in cached_probs.items():
-                                                        if prob > 0:
-                                                            print(f"  - {action}: {prob:.6f}")
-                                                else:
-                                                    print(f"option_selection_memo에 {pattern_key} 키가 없음")
-                                                    
-                                                    # 에러를 다시 발생시켜 프로그램 중단
-                                                    raise
+                                                # 에러를 다시 발생시켜 프로그램 중단
+                                                raise
     
     end_time = time.time()
     elapsed_time = end_time - start_time

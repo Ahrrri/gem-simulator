@@ -20,17 +20,30 @@ function ProcessingTab() {
   // 이미지 인식 관련 상태
   const [isRecognizing, setIsRecognizing] = useState(false);
   const [recognitionError, setRecognitionError] = useState(null);
+  const [ocrProgress, setOcrProgress] = useState(0);
 
   // 이미지 캡처 후 젬 정보 인식 처리
   const handleImageCaptured = async (imageDataUrl) => {
     try {
       setIsRecognizing(true);
       setRecognitionError(null);
+      setOcrProgress(0);
       
       console.log('이미지 캡처 완료, 인식 시작...');
       
-      // 이미지에서 젬 정보 인식
-      const recognizedGem = await recognizeGemFromImage(imageDataUrl);
+      // 이미지에서 젬 정보 인식 (개선된 옵션 사용)
+      const recognizedGem = await recognizeGemFromImage(imageDataUrl, {
+        usePreprocess: true,
+        preprocessOptions: {
+          scale: 2, // 2배 확대
+          sharpen: true, // 선명도 향상
+          denoise: true, // 노이즈 제거
+          binarize: false // 이진화는 배경이 복잡한 경우 비활성화
+        },
+        ocrConfig: {
+          tessedit_char_whitelist: '0123456789가-힣ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz%+:. ', // 인식할 문자 제한
+        }
+      });
       
       // 인식된 정보를 시뮬레이터 형식으로 변환
       const convertedGem = convertToSimulatorFormat(recognizedGem);
@@ -39,11 +52,16 @@ function ProcessingTab() {
         // 인식된 젬을 processingGem으로 설정
         setProcessingGem(convertedGem);
         console.log('젬 정보 자동 업데이트 완료:', convertedGem);
+        
+        // 성공 메시지 표시 (잠시 후 자동 제거)
+        setTimeout(() => {
+          setOcrProgress(0);
+        }, 3000);
       }
       
     } catch (error) {
       console.error('이미지 인식 실패:', error);
-      setRecognitionError('이미지에서 젬 정보를 인식하지 못했습니다.');
+      setRecognitionError('이미지에서 젬 정보를 인식하지 못했습니다. 더 선명한 이미지로 다시 시도해주세요.');
     } finally {
       setIsRecognizing(false);
     }

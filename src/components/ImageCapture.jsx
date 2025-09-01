@@ -4,6 +4,7 @@ import './ImageCapture.css';
 const ImageCapture = ({ onImageCaptured }) => {
   const [isCapturing, setIsCapturing] = useState(false);
   const [capturedImage, setCapturedImage] = useState(null);
+  const [showPreprocessed, setShowPreprocessed] = useState(false);
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
 
@@ -126,6 +127,12 @@ const ImageCapture = ({ onImageCaptured }) => {
             alt="캡처된 화면" 
             style={{ maxWidth: '400px', maxHeight: '300px', border: '1px solid #ccc' }}
           />
+          <div className="preprocess-info">
+            <p style={{ fontSize: '12px', color: '#666', marginTop: '10px' }}>
+              💡 팁: 젬 정보가 명확하게 보이는 부분을 캡처하세요.
+              OCR이 텍스트를 자동으로 인식합니다.
+            </p>
+          </div>
         </div>
       )}
 

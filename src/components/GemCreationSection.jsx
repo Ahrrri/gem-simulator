@@ -1,5 +1,5 @@
 import './GemCreationSection.css';
-import { createProcessingGem, PROCESSING_STRATEGIES } from '../utils/gemProcessing';
+import { createProcessingGem } from '../utils/gemProcessing';
 
 function GemCreationSection({
   processingGem,
@@ -7,22 +7,7 @@ function GemCreationSection({
   setProcessingHistory,
   setLastProcessingResult,
   selectedProcessingGrade,
-  setSelectedProcessingGrade,
-  
-  // 시뮬레이션 관련
-  processingSimulationCount,
-  setProcessingSimulationCount,
-  isProcessingSimulating,
-  selectedSimulationGemType,
-  setSelectedSimulationGemType,
-  selectedSimulationGrade,
-  setSelectedSimulationGrade,
-  selectedStrategy,
-  setSelectedStrategy,
-  strategyThreshold,
-  setStrategyThreshold,
-  executeProcessingSimulation,
-  resetProcessingSimulation
+  setSelectedProcessingGrade
 }) {
   // 젬 타입 조합 옵션
   const gemTypeOptions = [
@@ -84,108 +69,6 @@ function GemCreationSection({
                       {option.label}
                     </button>
                   ))}
-                </div>
-              </div>
-            </div>
-            
-            <div className="simulation-processing">
-              <h3>가공 시뮬레이션</h3>
-              
-              {/* 시뮬레이션 설정 */}
-              <div className="simulation-settings">
-                <div className="simulation-controls">
-                  <div className="sim-setting">
-                    <label>젬 타입:</label>
-                    <select 
-                      value={selectedSimulationGemType}
-                      onChange={(e) => setSelectedSimulationGemType(e.target.value)}
-                      disabled={isProcessingSimulating}
-                    >
-                      {gemTypeOptions.map(option => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  
-                  <div className="sim-setting">
-                    <label>젬 등급:</label>
-                    <select
-                      value={selectedSimulationGrade}
-                      onChange={(e) => setSelectedSimulationGrade(e.target.value)}
-                      disabled={isProcessingSimulating}
-                    >
-                      {processingGradeOptions.map(option => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  
-                  <div className="sim-setting">
-                    <label>시뮬레이션 횟수:</label>
-                    <input
-                      type="number"
-                      value={processingSimulationCount}
-                      onChange={(e) => setProcessingSimulationCount(parseInt(e.target.value) || 1)}
-                      min="1"
-                      max="100000"
-                      disabled={isProcessingSimulating}
-                    />
-                  </div>
-                  
-                  <div className="sim-setting">
-                    <label>전략:</label>
-                    <select
-                      value={selectedStrategy}
-                      onChange={(e) => setSelectedStrategy(e.target.value)}
-                      disabled={isProcessingSimulating}
-                    >
-                      {Object.entries(PROCESSING_STRATEGIES).map(([key, strategy]) => (
-                        <option key={key} value={key}>
-                          {strategy.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  
-                  {selectedStrategy === 'THRESHOLD_REROLL' && (
-                    <div className="sim-setting">
-                      <label>임계값:</label>
-                      <input
-                        type="number"
-                        value={strategyThreshold}
-                        onChange={(e) => setStrategyThreshold(Number(e.target.value))}
-                        min="-5"
-                        max="5"
-                        step="0.5"
-                        disabled={isProcessingSimulating}
-                      />
-                      <span className="threshold-hint">
-                        (평균 값 ≤ {strategyThreshold}일 때 리롤)
-                      </span>
-                    </div>
-                  )}
-                </div>
-                
-                <div className="simulation-buttons">
-                  <button 
-                    className="btn btn-primary"
-                    onClick={executeProcessingSimulation}
-                    disabled={isProcessingSimulating}
-                  >
-                    {isProcessingSimulating ? '🔄 시뮬레이션 중...' : '🎲 시뮬레이션 실행'}
-                  </button>
-                  
-                  <button 
-                    className="btn btn-reset"
-                    onClick={resetProcessingSimulation}
-                    disabled={isProcessingSimulating}
-                  >
-                    🗑️ 초기화
-                  </button>
                 </div>
               </div>
             </div>

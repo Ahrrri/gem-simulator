@@ -533,7 +533,7 @@ function ProcessingGemDisplay({
                               <div className="category-title">{category.title}</div>
                               <div className="result-content">
                                 {/* 히스토리 네비게이션 버튼들 */}
-                                {processingGem && processingGem.processingCount > 0 && (
+                                {processingGem && (
                                   <div className="history-navigation">
                                     {(() => {
                                       const history = getProcessingHistory(processingGem);
@@ -563,6 +563,10 @@ function ProcessingGemDisplay({
                                     
                                     // 공통 되돌리기 함수
                                     const handleRestore = () => {
+                                      if (selectedHistoryIndex === history.length - 1) {
+                                        return;
+                                      }
+                                      
                                       // 원본 젬을 linked list를 통해 직접 찾기
                                       let targetGem = processingGem;
                                       const targetIndex = selectedHistoryIndex;
@@ -581,51 +585,31 @@ function ProcessingGemDisplay({
                                       }
                                     };
 
-                                    if (selectedHistory && selectedHistory.processedWith) {
-                                      return (
-                                        <div>
-                                          <div className="processing-result-card-compact">
-                                            <div className="result-badges">
-                                              <span className="result-badge history-step">
-                                                {selectedHistoryIndex}회차
-                                              </span>
-                                            </div>
-                                            <div className="result-option-compact">
-                                              {formatDescription(selectedHistory.processedWith.description, processingGem)}
-                                            </div>
+                                    return (
+                                      <div>
+                                        <div className="processing-result-card-compact">
+                                          <div className="result-badges">
+                                            <span className="result-badge history-step">
+                                              {selectedHistory && selectedHistory.processedWith 
+                                                ? `${selectedHistoryIndex}회차` 
+                                                : '초기 상태'}
+                                            </span>
                                           </div>
-                                          {selectedHistoryIndex !== history.length - 1 && (
-                                            <button 
-                                              className="btn-secondary restore-btn"
-                                              onClick={handleRestore}
-                                            >
-                                              🔄 이 상태로 되돌리기
-                                            </button>
-                                          )}
-                                        </div>
-                                      );
-                                    } else {
-                                      return (
-                                        <div>
-                                          <div className="processing-result-card-compact">
-                                            <div className="result-badges">
-                                              <span className="result-badge history-step">초기 상태</span>
-                                            </div>
-                                            <div className="result-option-compact">
-                                              가공 시작 전
-                                            </div>
+                                          <div className="result-option-compact">
+                                            {selectedHistory && selectedHistory.processedWith
+                                              ? formatDescription(selectedHistory.processedWith.description, processingGem)
+                                              : '가공 시작 전'}
                                           </div>
-                                          {selectedHistoryIndex !== history.length - 1 && (
-                                            <button 
-                                              className="btn-secondary restore-btn"
-                                              onClick={handleRestore}
-                                            >
-                                              🔄 이 상태로 되돌리기
-                                            </button>
-                                          )}
                                         </div>
-                                      );
-                                    }
+                                        <button 
+                                          className="btn-secondary restore-btn"
+                                          onClick={handleRestore}
+                                          disabled={selectedHistoryIndex === history.length - 1}
+                                        >
+                                          🔄 이 상태로 되돌리기
+                                        </button>
+                                      </div>
+                                    );
                                   } else if (lastProcessingResult) {
                                     // 기존 최근 결과 표시
                                     return (
@@ -884,6 +868,7 @@ function ProcessingGemDisplay({
                 setProcessingGem(resetGem);
                 setProcessingHistory([resetGem]);
                 setLastProcessingResult(null);
+                setSelectedHistoryIndex(0);
               }}
             >
               다시 가공

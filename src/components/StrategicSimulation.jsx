@@ -34,8 +34,7 @@ function StrategicSimulation() {
   const [isLoading, setIsLoading] = useState(true);
   
   const [gemConfig, setGemConfig] = useState({
-    mainType: 'DEALER',
-    subType: 'CRIT',
+    type: 'ORDER_STABLE',
     grade: 'RARE'
   });
 
@@ -61,7 +60,7 @@ function StrategicSimulation() {
       const results = [];
       
       for (let i = 0; i < simulationCount; i++) {
-        const initialGem = createProcessingGem(gemConfig.mainType, gemConfig.subType, gemConfig.grade);
+        const initialGem = createProcessingGem(gemConfig.type, gemConfig.grade);
         const result = await runStrategicSimulation(initialGem, strategy);
         results.push(result);
         
@@ -86,7 +85,7 @@ function StrategicSimulation() {
     setComparisonResults(null);
     
     try {
-      const initialGem = createProcessingGem(gemConfig.mainType, gemConfig.subType, gemConfig.grade);
+      const initialGem = createProcessingGem(gemConfig.type, gemConfig.grade);
       const comparison = await compareStrategies(initialGem, strategies, Math.floor(simulationCount / Object.keys(strategies).length));
       
       setComparisonResults(comparison);
@@ -133,8 +132,8 @@ function StrategicSimulation() {
   if (isLoading) {
     return (
       <div className="strategic-simulation-container">
-        <div className="loading-message">
-          <span className="loading-spinner"></span>
+        <div className="strategic-loading-message">
+          <span className="strategic-strategic-loading-spinner"></span>
           모듈 로딩 중...
         </div>
       </div>
@@ -145,17 +144,17 @@ function StrategicSimulation() {
     <div className="strategic-simulation-container">
       <div className="strategic-simulation-header">
         <h2 className="strategic-simulation-title">
-          🎯 전략적 시뮬레이션
+          전략 시뮬레이션
         </h2>
-        <div className="mode-toggle">
+        <div className="strategic-mode-toggle">
           <button 
-            className={`mode-btn ${!comparisonMode ? 'active' : ''}`}
+            className={`strategic-mode-btn ${!comparisonMode ? 'active' : ''}`}
             onClick={() => setComparisonMode(false)}
           >
             단일 전략
           </button>
           <button 
-            className={`mode-btn ${comparisonMode ? 'active' : ''}`}
+            className={`strategic-mode-btn ${comparisonMode ? 'active' : ''}`}
             onClick={() => setComparisonMode(true)}
           >
             전략 비교
@@ -164,37 +163,30 @@ function StrategicSimulation() {
       </div>
 
       {/* 젬 설정 */}
-      <div className="gem-config-section">
+      <div className="strategic-gem-config-section">
         <h3>젬 설정</h3>
-        <div className="gem-config-controls">
-          <div className="control-group">
+        <div className="strategic-gem-config-controls">
+          <div className="strategic-control-group">
             <label>젬 타입</label>
             <select 
-              value={gemConfig.mainType}
-              onChange={(e) => setGemConfig(prev => ({ ...prev, mainType: e.target.value }))}
-              className="control-input"
+              value={gemConfig.type}
+              onChange={(e) => setGemConfig(prev => ({ ...prev, type: e.target.value }))}
+              className="strategic-control-input"
             >
-              <option value="DEALER">딜러</option>
-              <option value="SUPPORT">서포터</option>
+              <option value="ORDER_STABLE">질서: 안정</option>
+              <option value="ORDER_SOLID">질서: 견고</option>
+              <option value="ORDER_IMMUTABLE">질서: 불변</option>
+              <option value="CHAOS_EROSION">혼돈: 침식</option>
+              <option value="CHAOS_DISTORTION">혼돈: 왜곡</option>
+              <option value="CHAOS_COLLAPSE">혼돈: 붕괴</option>
             </select>
           </div>
-          <div className="control-group">
-            <label>서브 타입</label>
-            <select 
-              value={gemConfig.subType}
-              onChange={(e) => setGemConfig(prev => ({ ...prev, subType: e.target.value }))}
-              className="control-input"
-            >
-              <option value="CRIT">치명타</option>
-              <option value="SPECIALTY">특성</option>
-            </select>
-          </div>
-          <div className="control-group">
+          <div className="strategic-control-group">
             <label>젬 등급</label>
             <select 
               value={gemConfig.grade}
               onChange={(e) => setGemConfig(prev => ({ ...prev, grade: e.target.value }))}
-              className="control-input"
+              className="strategic-control-input"
             >
               <option value="UNCOMMON">고급 (5회)</option>
               <option value="RARE">희귀 (7회)</option>
@@ -207,40 +199,42 @@ function StrategicSimulation() {
       {!comparisonMode ? (
         <>
           {/* 전략 선택 */}
-          <div className="strategy-selector">
-            {Object.entries(strategies).map(([key, strategy]) => (
-              <div 
-                key={key}
-                className={`strategy-card ${selectedStrategy === key ? 'selected' : ''}`}
-                onClick={() => setSelectedStrategy(key)}
-              >
-                <div className="strategy-name">{strategy.name}</div>
-                <div className="strategy-description">{strategy.description}</div>
-              </div>
-            ))}
+          <div className="strategic-control-group">
+            <label>전략</label>
+            <select 
+              value={selectedStrategy}
+              onChange={(e) => setSelectedStrategy(e.target.value)}
+              className="strategic-control-input"
+            >
+              {Object.entries(strategies).map(([key, strategy]) => (
+                <option key={key} value={key}>
+                  {strategy.name}
+                </option>
+              ))}
+            </select>
           </div>
 
           {/* 시뮬레이션 제어 */}
-          <div className="simulation-controls">
-            <div className="control-group">
+          <div className="strategic-simulation-controls">
+            <div className="strategic-control-group">
               <label>시뮬레이션 횟수</label>
               <input
                 type="number"
                 value={simulationCount}
                 onChange={(e) => setSimulationCount(Math.max(1, parseInt(e.target.value) || 1))}
-                className="control-input"
+                className="strategic-control-input"
                 min="1"
                 max="1000"
               />
             </div>
             <button 
-              className="run-simulation-btn"
+              className="strategic-run-simulation-btn"
               onClick={runSingleStrategy}
               disabled={isRunning}
             >
               {isRunning ? (
                 <>
-                  <span className="loading-spinner"></span>
+                  <span className="strategic-loading-spinner"></span>
                   실행 중...
                 </>
               ) : (
@@ -252,28 +246,28 @@ function StrategicSimulation() {
       ) : (
         <>
           {/* 전략 비교 모드 */}
-          <div className="comparison-info">
+          <div className="strategic-comparison-info">
             <p>모든 전략을 동일한 조건으로 비교합니다.</p>
-            <div className="simulation-controls">
-              <div className="control-group">
+            <div className="strategic-simulation-controls">
+              <div className="strategic-control-group">
                 <label>전략당 실행 횟수</label>
                 <input
                   type="number"
                   value={Math.floor(simulationCount / Object.keys(strategies).length)}
                   onChange={(e) => setSimulationCount(Math.max(Object.keys(strategies).length, parseInt(e.target.value) * Object.keys(strategies).length))}
-                  className="control-input"
+                  className="strategic-control-input"
                   min="1"
                   max="200"
                 />
               </div>
               <button 
-                className="run-simulation-btn"
+                className="strategic-run-simulation-btn"
                 onClick={runStrategyComparison}
                 disabled={isRunning}
               >
                 {isRunning ? (
                   <>
-                    <span className="loading-spinner"></span>
+                    <span className="strategic-loading-spinner"></span>
                     비교 중...
                   </>
                 ) : (
@@ -287,9 +281,9 @@ function StrategicSimulation() {
 
       {/* 진행 상황 */}
       {isRunning && (
-        <div className="simulation-progress">
+        <div className="strategic-simulation-progress">
           <div 
-            className="progress-bar"
+            className="strategic-progress-bar"
             style={{ width: `${progress}%` }}
           ></div>
         </div>
@@ -297,34 +291,34 @@ function StrategicSimulation() {
 
       {/* 결과 표시 */}
       {!comparisonMode && results && (
-        <div className="simulation-results">
+        <div className="strategic-simulation-results">
           <h3>시뮬레이션 결과</h3>
-          <div className="results-summary">
-            <div className="result-card">
-              <div className="result-value">{results.averagePoints}</div>
-              <div className="result-label">평균 포인트</div>
+          <div className="strategic-results-summary">
+            <div className="strategic-result-card">
+              <div className="strategic-result-value">{results.averagePoints}</div>
+              <div className="strategic-result-label">평균 포인트</div>
             </div>
-            <div className="result-card">
-              <div className="result-value">{results.ancientRate}%</div>
-              <div className="result-label">Ancient 달성률</div>
+            <div className="strategic-result-card">
+              <div className="strategic-result-value">{results.ancientRate}%</div>
+              <div className="strategic-result-label">Ancient 달성률</div>
             </div>
-            <div className="result-card">
-              <div className="result-value">{results.relicRate}%</div>
-              <div className="result-label">Relic 달성률</div>
+            <div className="strategic-result-card">
+              <div className="strategic-result-value">{results.relicRate}%</div>
+              <div className="strategic-result-label">Relic 달성률</div>
             </div>
-            <div className="result-card">
-              <div className="result-value">{results.averageRerolls}</div>
-              <div className="result-label">평균 리롤 사용</div>
+            <div className="strategic-result-card">
+              <div className="strategic-result-value">{results.averageRerolls}</div>
+              <div className="strategic-result-label">평균 리롤 사용</div>
             </div>
           </div>
 
           {/* 최고/최악 결과 */}
-          <div className="extreme-results">
-            <div className="extreme-result">
+          <div className="strategic-strategic-extreme-results">
+            <div className="strategic-extreme-result">
               <h4>최고 결과</h4>
               <p>포인트: {results.bestResult.finalGem.totalPoints} / 단계: {results.bestResult.totalProcessingSteps} / 리롤: {results.bestResult.totalRerollsUsed}</p>
             </div>
-            <div className="extreme-result">
+            <div className="strategic-extreme-result">
               <h4>최악 결과</h4>
               <p>포인트: {results.worstResult.finalGem.totalPoints} / 단계: {results.worstResult.totalProcessingSteps} / 리롤: {results.worstResult.totalRerollsUsed}</p>
             </div>
@@ -332,18 +326,18 @@ function StrategicSimulation() {
 
           {/* 의사결정 분석 (첫 번째 시뮬레이션 결과) */}
           {results.rawResults.length > 0 && results.rawResults[0].decisions && (
-            <div className="decision-analysis">
-              <h4 className="decision-analysis-title">의사결정 분석 (샘플)</h4>
-              <div className="decision-timeline">
+            <div className="strategic-decision-analysis">
+              <h4 className="strategic-strategic-decision-analysis-title">의사결정 분석 (샘플)</h4>
+              <div className="strategic-decision-timeline">
                 {results.rawResults[0].decisions.slice(0, 10).map((decision, index) => (
-                  <div key={index} className="decision-step">
-                    <div className="step-number">{decision.attempt}</div>
-                    <div className="decision-details">
-                      <div className="decision-action">
+                  <div key={index} className="strategic-decision-step">
+                    <div className="strategic-step-number">{decision.attempt}</div>
+                    <div className="strategic-decision-details">
+                      <div className="strategic-decision-action">
                         {decision.selectedAction}
-                        {decision.rerollDecision && <span className="reroll-indicator">리롤</span>}
+                        {decision.rerollDecision && <span className="strategic-reroll-indicator">리롤</span>}
                       </div>
-                      <div className="decision-reason">{decision.selectionReason}</div>
+                      <div className="strategic-decision-reason">{decision.selectionReason}</div>
                     </div>
                   </div>
                 ))}
@@ -355,9 +349,9 @@ function StrategicSimulation() {
 
       {/* 전략 비교 결과 */}
       {comparisonMode && comparisonResults && (
-        <div className="strategy-comparison">
-          <h3 className="comparison-title">전략 비교 결과</h3>
-          <table className="comparison-table">
+        <div className="strategic-strategy-comparison">
+          <h3 className="strategic-comparison-title">전략 비교 결과</h3>
+          <table className="strategic-comparison-table">
             <thead>
               <tr>
                 <th>전략</th>
@@ -372,7 +366,7 @@ function StrategicSimulation() {
               {Object.entries(comparisonResults)
                 .sort(([,a], [,b]) => parseFloat(b.statistics.averageFinalPoints) - parseFloat(a.statistics.averageFinalPoints))
                 .map(([strategyKey, data], index) => (
-                <tr key={strategyKey} className={index === 0 ? 'best-strategy' : ''}>
+                <tr key={strategyKey} className={index === 0 ? 'strategic-best-strategy' : ''}>
                   <td>{data.strategy.name}</td>
                   <td>{data.statistics.averageFinalPoints.toFixed(2)}</td>
                   <td>{data.statistics.ancientRate.toFixed(1)}%</td>

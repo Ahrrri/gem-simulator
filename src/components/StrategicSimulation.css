@@ -1,12 +1,12 @@
-/* 전략적 시뮬레이션 컴포넌트 스타일 */
+/* StrategicSimulation 컴포넌트 전용 스타일 */
 
 .strategic-simulation-container {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: rgba(102, 126, 234, 0.05);
   border-radius: 16px;
   padding: 32px;
-  color: white;
+  color: inherit;
   margin: 20px 0;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(102, 126, 234, 0.1);
 }
 
 .strategic-simulation-header {
@@ -23,24 +23,20 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  background: linear-gradient(45deg, #ffd700, #ffed4e);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
 }
 
-.mode-toggle {
+.strategic-mode-toggle {
   display: flex;
-  background: rgba(255, 255, 255, 0.1);
+  background: #f8f9fa;
   border-radius: 25px;
   padding: 4px;
   gap: 4px;
 }
 
-.mode-btn {
+.strategic-mode-btn {
   background: transparent;
-  border: none;
-  color: white;
+  border: 1px solid #dee2e6;
+  color: inherit;
   padding: 8px 16px;
   border-radius: 20px;
   cursor: pointer;
@@ -48,38 +44,40 @@
   font-weight: 500;
 }
 
-.mode-btn.active {
-  background: rgba(255, 255, 255, 0.2);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+.strategic-mode-btn.active {
+  background: #007bff;
+  color: white;
+  border-color: #007bff;
 }
 
-.gem-config-section {
-  background: rgba(0, 0, 0, 0.15);
+.strategic-gem-config-section {
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
   border-radius: 12px;
   padding: 20px;
   margin-bottom: 32px;
 }
 
-.gem-config-section h3 {
+.strategic-gem-config-section h3 {
   margin: 0 0 16px 0;
   font-size: 18px;
-  color: #ffd700;
+  color: inherit;
 }
 
-.gem-config-controls {
+.strategic-gem-config-controls {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 16px;
 }
 
-.strategy-selector {
+.strategic-strategy-selector {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
   gap: 20px;
   margin-bottom: 32px;
 }
 
-.strategy-card {
+.strategic-strategy-card {
   background: rgba(255, 255, 255, 0.1);
   border: 2px solid transparent;
   border-radius: 12px;
@@ -91,7 +89,7 @@
   overflow: hidden;
 }
 
-.strategy-card::before {
+.strategic-strategy-card::before {
   content: '';
   position: absolute;
   top: 0;
@@ -103,33 +101,33 @@
   transition: transform 0.6s ease;
 }
 
-.strategy-card:hover::before {
+.strategic-strategy-card:hover::before {
   transform: translateX(100%);
 }
 
-.strategy-card:hover {
+.strategic-strategy-card:hover {
   background: rgba(255, 255, 255, 0.15);
   transform: translateY(-4px);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
 }
 
-.strategy-card.selected {
+.strategic-strategy-card.selected {
   border-color: #ffd700;
   background: rgba(255, 215, 0, 0.15);
   box-shadow: 0 0 30px rgba(255, 215, 0, 0.3);
   transform: translateY(-2px);
 }
 
-.strategy-name {
+.strategic-strategy-name {
   font-size: 20px;
   font-weight: bold;
   margin-bottom: 12px;
-  color: #ffd700;
+  color: inherit;
   position: relative;
   z-index: 1;
 }
 
-.strategy-description {
+.strategic-strategy-description {
   font-size: 14px;
   opacity: 0.9;
   line-height: 1.6;
@@ -137,7 +135,7 @@
   z-index: 1;
 }
 
-.simulation-controls {
+.strategic-simulation-controls {
   display: flex;
   align-items: center;
   gap: 20px;
@@ -145,13 +143,13 @@
   flex-wrap: wrap;
 }
 
-.control-group {
+.strategic-control-group {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 
-.control-group label {
+.strategic-control-group label {
   font-size: 12px;
   font-weight: bold;
   opacity: 0.8;
@@ -159,57 +157,49 @@
   letter-spacing: 1px;
 }
 
-.control-input {
+.strategic-control-input {
   padding: 10px 14px;
-  border: none;
+  border: 1px solid #dee2e6;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.15);
-  color: white;
+  background: white;
+  color: inherit;
   font-size: 14px;
   min-width: 100px;
   transition: all 0.3s ease;
 }
 
-.control-input:focus {
+.strategic-control-input:focus {
   outline: none;
-  background: rgba(255, 255, 255, 0.25);
-  box-shadow: 0 0 0 2px rgba(255, 215, 0, 0.5);
+  border-color: #007bff;
+  box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
 }
 
-.control-input::placeholder {
-  color: rgba(255, 255, 255, 0.6);
-}
-
-.run-simulation-btn {
-  background: linear-gradient(45deg, #ff6b6b, #feca57);
-  border: none;
-  border-radius: 12px;
-  padding: 14px 28px;
+.strategic-run-simulation-btn {
+  background: #007bff;
+  border: 1px solid #007bff;
+  border-radius: 8px;
+  padding: 12px 24px;
   color: white;
-  font-weight: bold;
+  font-weight: 500;
   cursor: pointer;
   transition: all 0.3s ease;
-  text-transform: uppercase;
-  letter-spacing: 1px;
   font-size: 14px;
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.run-simulation-btn:hover:not(:disabled) {
-  transform: translateY(-3px);
-  box-shadow: 0 8px 25px rgba(255, 107, 107, 0.4);
-  background: linear-gradient(45deg, #ff5252, #ffc107);
+.strategic-run-simulation-btn:hover:not(:disabled) {
+  background: #0056b3;
+  border-color: #0056b3;
 }
 
-.run-simulation-btn:disabled {
+.strategic-run-simulation-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
-  transform: none;
 }
 
-.simulation-progress {
+.strategic-simulation-progress {
   background: rgba(0, 0, 0, 0.3);
   border-radius: 12px;
   height: 12px;
@@ -218,7 +208,7 @@
   position: relative;
 }
 
-.progress-bar {
+.strategic-progress-bar {
   background: linear-gradient(90deg, #00f2fe, #4facfe, #00f2fe);
   height: 100%;
   transition: width 0.3s ease;
@@ -231,24 +221,24 @@
   100% { background-position: 200% 0; }
 }
 
-.simulation-results {
+.strategic-simulation-results {
   margin-top: 32px;
 }
 
-.simulation-results h3 {
+.strategic-simulation-results h3 {
   font-size: 24px;
   margin-bottom: 24px;
   color: #ffd700;
 }
 
-.results-summary {
+.strategic-results-summary {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 20px;
   margin-bottom: 32px;
 }
 
-.result-card {
+.strategic-result-card {
   background: rgba(255, 255, 255, 0.1);
   border-radius: 12px;
   padding: 24px;
@@ -256,12 +246,12 @@
   transition: transform 0.3s ease;
 }
 
-.result-card:hover {
+.strategic-result-card:hover {
   transform: translateY(-2px);
   background: rgba(255, 255, 255, 0.15);
 }
 
-.result-value {
+.strategic-result-value {
   font-size: 36px;
   font-weight: bold;
   color: #ffd700;
@@ -269,53 +259,53 @@
   text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
 }
 
-.result-label {
+.strategic-result-label {
   font-size: 12px;
   opacity: 0.8;
   text-transform: uppercase;
   letter-spacing: 1px;
 }
 
-.extreme-results {
+.strategic-extreme-results {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
   gap: 20px;
   margin-bottom: 24px;
 }
 
-.extreme-result {
+.strategic-extreme-result {
   background: rgba(0, 0, 0, 0.2);
   border-radius: 12px;
   padding: 20px;
 }
 
-.extreme-result h4 {
+.strategic-extreme-result h4 {
   margin: 0 0 12px 0;
   color: #ffd700;
   font-size: 16px;
 }
 
-.extreme-result p {
+.strategic-extreme-result p {
   margin: 0;
   font-size: 14px;
   opacity: 0.9;
 }
 
-.decision-analysis {
+.strategic-decision-analysis {
   background: rgba(0, 0, 0, 0.2);
   border-radius: 12px;
   padding: 24px;
   margin-top: 24px;
 }
 
-.decision-analysis-title {
+.strategic-decision-analysis-title {
   font-size: 20px;
   font-weight: bold;
   margin-bottom: 20px;
   color: #ffd700;
 }
 
-.decision-timeline {
+.strategic-decision-timeline {
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -323,7 +313,7 @@
   overflow-y: auto;
 }
 
-.decision-step {
+.strategic-decision-step {
   display: flex;
   align-items: flex-start;
   gap: 16px;
@@ -334,11 +324,11 @@
   transition: background 0.3s ease;
 }
 
-.decision-step:hover {
+.strategic-decision-step:hover {
   background: rgba(255, 255, 255, 0.1);
 }
 
-.step-number {
+.strategic-step-number {
   background: linear-gradient(45deg, #4facfe, #00f2fe);
   color: white;
   border-radius: 50%;
@@ -353,12 +343,12 @@
   box-shadow: 0 4px 12px rgba(79, 172, 254, 0.3);
 }
 
-.decision-details {
+.strategic-decision-details {
   flex: 1;
   font-size: 14px;
 }
 
-.decision-action {
+.strategic-decision-action {
   color: #ffd700;
   font-weight: bold;
   margin-bottom: 6px;
@@ -367,13 +357,13 @@
   gap: 8px;
 }
 
-.decision-reason {
+.strategic-decision-reason {
   opacity: 0.7;
   font-size: 13px;
   line-height: 1.4;
 }
 
-.reroll-indicator {
+.strategic-reroll-indicator {
   background: linear-gradient(45deg, #ff9a56, #ff6b6b);
   color: white;
   padding: 4px 8px;
@@ -383,34 +373,34 @@
   text-transform: uppercase;
 }
 
-.comparison-info {
+.strategic-comparison-info {
   background: rgba(0, 0, 0, 0.15);
   border-radius: 12px;
   padding: 24px;
   margin-bottom: 32px;
 }
 
-.comparison-info p {
+.strategic-comparison-info p {
   margin: 0 0 20px 0;
   font-size: 16px;
   opacity: 0.9;
 }
 
-.strategy-comparison {
+.strategic-strategy-comparison {
   margin-top: 32px;
   background: rgba(0, 0, 0, 0.15);
   border-radius: 16px;
   padding: 32px;
 }
 
-.comparison-title {
+.strategic-comparison-title {
   font-size: 24px;
   font-weight: bold;
   margin-bottom: 24px;
   color: #ffd700;
 }
 
-.comparison-table {
+.strategic-comparison-table {
   width: 100%;
   border-collapse: collapse;
   background: rgba(255, 255, 255, 0.05);
@@ -419,14 +409,14 @@
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
 }
 
-.comparison-table th,
-.comparison-table td {
+.strategic-comparison-table th,
+.strategic-comparison-table td {
   padding: 16px 20px;
   text-align: center;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-.comparison-table th {
+.strategic-comparison-table th {
   background: rgba(255, 255, 255, 0.1);
   font-weight: bold;
   color: #ffd700;
@@ -435,24 +425,24 @@
   letter-spacing: 1px;
 }
 
-.comparison-table tr {
+.strategic-comparison-table tr {
   transition: background 0.3s ease;
 }
 
-.comparison-table tr:hover {
+.strategic-comparison-table tr:hover {
   background: rgba(255, 255, 255, 0.08);
 }
 
-.best-strategy {
+.strategic-best-strategy {
   background: rgba(79, 172, 254, 0.2) !important;
 }
 
-.best-strategy td {
+.strategic-best-strategy td {
   color: #4facfe !important;
   font-weight: bold;
 }
 
-.loading-spinner {
+.strategic-loading-spinner {
   display: inline-block;
   width: 18px;
   height: 18px;
@@ -469,7 +459,7 @@
 }
 
 /* 로딩 메시지 스타일 */
-.loading-message {
+.strategic-loading-message {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -480,21 +470,21 @@
 }
 
 /* 스크롤바 스타일링 */
-.decision-timeline::-webkit-scrollbar {
+.strategic-decision-timeline::-webkit-scrollbar {
   width: 8px;
 }
 
-.decision-timeline::-webkit-scrollbar-track {
+.strategic-decision-timeline::-webkit-scrollbar-track {
   background: rgba(255, 255, 255, 0.1);
   border-radius: 4px;
 }
 
-.decision-timeline::-webkit-scrollbar-thumb {
+.strategic-decision-timeline::-webkit-scrollbar-thumb {
   background: rgba(255, 215, 0, 0.5);
   border-radius: 4px;
 }
 
-.decision-timeline::-webkit-scrollbar-thumb:hover {
+.strategic-decision-timeline::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 215, 0, 0.7);
 }
 
@@ -504,7 +494,7 @@
     padding: 24px;
   }
   
-  .strategy-selector {
+  .strategic-strategy-selector {
     grid-template-columns: 1fr;
   }
   
@@ -525,26 +515,26 @@
     font-size: 24px;
   }
   
-  .simulation-controls {
+  .strategic-simulation-controls {
     flex-direction: column;
     align-items: stretch;
     gap: 16px;
   }
   
-  .results-summary {
+  .strategic-results-summary {
     grid-template-columns: repeat(2, 1fr);
     gap: 16px;
   }
   
-  .result-value {
+  .strategic-result-value {
     font-size: 28px;
   }
   
-  .gem-config-controls {
+  .strategic-gem-config-controls {
     grid-template-columns: 1fr;
   }
   
-  .extreme-results {
+  .strategic-extreme-results {
     grid-template-columns: 1fr;
   }
 }
@@ -554,7 +544,7 @@
     padding: 16px;
   }
   
-  .results-summary {
+  .strategic-results-summary {
     grid-template-columns: 1fr;
   }
   
@@ -562,12 +552,12 @@
     font-size: 20px;
   }
   
-  .strategy-card {
+  .strategic-strategy-card {
     padding: 16px;
   }
   
-  .comparison-table th,
-  .comparison-table td {
+  .strategic-comparison-table th,
+  .strategic-comparison-table td {
     padding: 12px 8px;
     font-size: 12px;
   }

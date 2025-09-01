@@ -1,0 +1,90 @@
+.image-capture-container {
+  padding: 20px;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  margin: 10px 0;
+}
+
+.capture-controls {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 15px;
+  flex-wrap: wrap;
+}
+
+.capture-btn {
+  padding: 10px 16px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.start-btn {
+  background: #4CAF50;
+  color: white;
+}
+
+.start-btn:hover {
+  background: #45a049;
+}
+
+.capture-btn-main {
+  background: #2196F3;
+  color: white;
+}
+
+.capture-btn-main:hover {
+  background: #1976D2;
+}
+
+.stop-btn {
+  background: #f44336;
+  color: white;
+}
+
+.stop-btn:hover {
+  background: #d32f2f;
+}
+
+.clear-btn {
+  background: #9E9E9E;
+  color: white;
+}
+
+.clear-btn:hover {
+  background: #757575;
+}
+
+.capturing-controls {
+  display: flex;
+  gap: 10px;
+}
+
+.video-preview {
+  margin: 15px 0;
+  text-align: center;
+}
+
+.video-preview video {
+  border: 2px solid #2196F3;
+  border-radius: 6px;
+}
+
+.captured-image-preview {
+  margin-top: 15px;
+  text-align: center;
+}
+
+.captured-image-preview h4 {
+  margin: 0 0 10px 0;
+  color: inherit;
+  font-size: 16px;
+}
+
+.captured-image-preview img {
+  border-radius: 6px;
+}

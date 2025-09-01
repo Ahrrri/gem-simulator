@@ -1,26 +1,8 @@
 import './ProcessingStatistics.css';
-import { calculateAttemptWiseOptionStats } from '../utils/gemProcessing';
 
 function ProcessingStatistics({ 
-  processingStatistics, 
-  processingSimulationResults, 
-  selectedProcessingCombo, 
-  setSelectedProcessingCombo 
+  processingStatistics 
 }) {
-  // 가공 조합 예시 가져오기
-  const getProcessingComboExamples = (combo) => {
-    const [targetW, targetC] = combo.split('/').map(Number);
-    const filtered = processingSimulationResults
-      .filter(result => result.finalGem.willpower === targetW && result.finalGem.corePoint === targetC);
-    
-    // 처음 5개 선택 (랜덤 제거)
-    return filtered.slice(0, 5).map(result => result.finalGem);
-  };
-
-  // 가공 조합 클릭 핸들러
-  const handleProcessingComboClick = (combo) => {
-    setSelectedProcessingCombo(selectedProcessingCombo === combo ? null : combo);
-  };
 
   return (
     <div className="statistics-section">
@@ -172,114 +154,6 @@ function ProcessingStatistics({
         </div>
       )}
 
-      {/* 차수별 옵션 값 통계 */}
-      <div className="attempt-stats-section">
-        <h3>🎯 차수별 옵션 값 분석</h3>
-        <p className="stats-description">각 가공 차수에서 제공되는 포인트 변화 옵션들의 평균 값</p>
-        <div className="attempt-stats-grid">
-          {(() => {
-            const attemptStats = calculateAttemptWiseOptionStats(processingSimulationResults);
-            if (!attemptStats || attemptStats.length === 0) return <div>통계 데이터 없음</div>;
-            
-            return attemptStats.map(stat => (
-              <div key={stat.attempt} className="attempt-stat-item">
-                <div className="attempt-number">{stat.attempt}차</div>
-                <div className={`attempt-avg-value ${stat.avgOptionValue < 0 ? 'negative' : stat.avgOptionValue > 2 ? 'positive' : ''}`}>
-                  평균: {stat.avgOptionValue.toFixed(2)}
-                </div>
-                <div className="attempt-stdev">
-                  σ: {stat.stdev.toFixed(2)}
-                </div>
-                <div className="attempt-reroll">
-                  리롤: {stat.rerollRate.toFixed(3)}%
-                </div>
-              </div>
-            ));
-          })()}
-        </div>
-        <div className="stats-insight">
-          💡 음수 값이 나타나는 차수에서 "다른 항목 보기"를 고려해볼 수 있습니다. 리롤 비율은 해당 차수에서 전략이 실제로 리롤을 사용한 비율입니다.
-        </div>
-      </div>
-
-      {/* 의지력/코어포인트 조합 분포 */}
-      <div className="combo-section">
-        <h3>의지력/코어포인트 조합</h3>
-        <div className="combo-grid">
-          {(() => {
-            // 의지력/코어포인트 조합 생성
-            const combinations = {};
-            processingSimulationResults.forEach(result => {
-              const combo = `${result.finalGem.willpower}/${result.finalGem.corePoint}`;
-              combinations[combo] = (combinations[combo] || 0) + 1;
-            });
-            
-            return Object.entries(combinations)
-              .sort((a, b) => {
-                const [w1, c1] = a[0].split('/').map(Number);
-                const [w2, c2] = b[0].split('/').map(Number);
-                return (w2 + c2) - (w1 + c1) || w2 - w1;
-              })
-              .map(([combo, count]) => {
-                const percentage = (count / processingStatistics.totalRuns * 100);
-                const [w, c] = combo.split('/').map(Number);
-                const isPerfect = w === 5 && c === 5;
-                const isGood = w + c >= 8;
-                return (
-                  <div 
-                    key={combo} 
-                    className={`combo-item ${isPerfect ? 'perfect' : isGood ? 'good' : ''} ${selectedProcessingCombo === combo ? 'selected' : ''}`}
-                    onClick={() => handleProcessingComboClick(combo)}
-                  >
-                    <div className="combo-label">{combo}</div>
-                    <div className="combo-value">{count}</div>
-                    <div className="combo-percent">{percentage.toFixed(2)}%</div>
-                  </div>
-                );
-              });
-          })()}
-        </div>
-        
-        {/* 선택된 조합의 예시 */}
-        {selectedProcessingCombo && (
-          <div className="combo-examples">
-            <h4>{selectedProcessingCombo} 조합 예시</h4>
-            <div className="examples-grid">
-              {getProcessingComboExamples(selectedProcessingCombo).map((gem, index) => (
-                <div key={index} className="example-gem">
-                  <div className="example-header">
-                    <span className={`example-grade ${(() => {
-                      if (gem.totalPoints >= 19) return 'ancient';
-                      if (gem.totalPoints >= 16) return 'relic';
-                      return 'legendary';
-                    })()}`}>
-                      {(() => {
-                        if (gem.totalPoints >= 19) return '고대';
-                        if (gem.totalPoints >= 16) return '유물';
-                        return '전설';
-                      })()}
-                    </span>
-                    <span className="example-total">{gem.totalPoints}pt</span>
-                  </div>
-                  <div className="example-effects">
-                    <div className="effect-row">
-                      <span>{gem.effect1.name}</span>
-                      <span className={gem.effect1.level === 5 ? 'max' : ''}>Lv.{gem.effect1.level}</span>
-                    </div>
-                    <div className="effect-row">
-                      <span>{gem.effect2.name}</span>
-                      <span className={gem.effect2.level === 5 ? 'max' : ''}>Lv.{gem.effect2.level}</span>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-            {getProcessingComboExamples(selectedProcessingCombo).length === 0 && (
-              <div className="no-examples">이 조합의 예시가 없습니다.</div>
-            )}
-          </div>
-        )}
-      </div>
 
       {/* 포인트 분포 히스토그램 */}
       <div className="histogram-section">

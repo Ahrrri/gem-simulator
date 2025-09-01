@@ -194,8 +194,8 @@ async function startServer() {
   try {
     await initDatabase();
     
-    app.listen(PORT, () => {
-      console.log(`🚀 서버가 포트 ${PORT}에서 실행 중입니다`);
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`🚀 서버가 포트 ${PORT}에서 실행 중입니다 (모든 인터페이스)`);
       console.log(`📡 API 엔드포인트:`);
       console.log(`   GET  /health - 헬스 체크`);
       console.log(`   GET  /api/stats - 데이터베이스 통계`);

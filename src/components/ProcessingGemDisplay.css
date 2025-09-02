@@ -1695,6 +1695,64 @@
   }
 }
 
+/* Change target selection styles */
+.change-target-selection {
+  position: absolute;
+  bottom: 120%;
+  left: 0;
+  right: 0;
+  background: white;
+  border: 2px solid #667eea;
+  border-radius: 8px;
+  padding: 0.4rem;
+  margin-top: 0.25rem;
+  z-index: 100;
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.25);
+}
+
+.change-target-header {
+  text-align: center;
+  margin-bottom: 0.2rem;
+  font-size: 0.9rem;
+  color: #333;
+}
+
+.change-from {
+  font-weight: 600;
+  color: #667eea;
+}
+
+.change-target-buttons {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.change-target-btn {
+  background: #f8f9fa;
+  border: 2px solid #e0e0e0;
+  color: #333;
+  padding: 0.2rem 0.4rem;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.change-target-btn:hover {
+  border-color: #667eea;
+  background: #f0f4ff;
+  color: #667eea;
+}
+
+.change-target-btn.selected {
+  background: #667eea;
+  border-color: #667eea;
+  color: white;
+  box-shadow: 0 2px 6px rgba(102, 126, 234, 0.3);
+}
+
 /* Medium screens */
 @media (max-width: 1024px) and (min-width: 769px) {
   .options-row {

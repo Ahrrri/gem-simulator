@@ -35,6 +35,9 @@ function ProcessingGemDisplay({
   const [isManualOptionSampling, setIsManualOptionSampling] = useState(false);
   const [selectedOptionIndex, setSelectedOptionIndex] = useState(null);
   const [selectedHistoryIndex, setSelectedHistoryIndex] = useState(null);
+  const [showChangeTargets, setShowChangeTargets] = useState(false);
+  const [selectedChangeOption, setSelectedChangeOption] = useState(null);
+  const [selectedTargetOption, setSelectedTargetOption] = useState(null);
 
   // 현재 사용할 옵션 세트 계산
   const getCurrentOptionSet = () => {
@@ -129,6 +132,19 @@ function ProcessingGemDisplay({
     }
   };
 
+
+  // _change 옵션의 가능한 대상 옵션들 찾기
+  const getAvailableChangeTargets = (fromOption) => {
+    if (!processingGem) return [];
+    
+    const currentOptions = ['dealerA', 'dealerB', 'supportA', 'supportB'];
+    const inactiveOptions = currentOptions.filter(opt => (processingGem[opt] || 0) === 0);
+    
+    return inactiveOptions.map(opt => {
+      const effectName = getEffectName(processingGem, opt);
+      return { optionKey: opt, effectName };
+    });
+  };
 
   // 현재 활성화된 옵션들 가져오기 (0이 아닌 값들)
   const getActiveEffects = (gem) => {
@@ -706,6 +722,7 @@ function ProcessingGemDisplay({
               </button>
             </div>
           </div>
+          
           <div className="options-display">
             {(() => {
               const currentOptionSet = getCurrentOptionSet();
@@ -715,7 +732,27 @@ function ProcessingGemDisplay({
                   key={index}
                   className={`option-display clickable ${selectedOptionIndex === index ? 'selected' : ''}`}
                   onClick={() => {
-                    setSelectedOptionIndex(selectedOptionIndex === index ? null : index);
+                    const isChangeOption = option.action.endsWith('_change');
+                    
+                    if (isChangeOption && selectedOptionIndex !== index) {
+                      // _change 옵션을 새로 선택한 경우
+                      setSelectedOptionIndex(index);
+                      setSelectedChangeOption(option);
+                      setSelectedTargetOption(null); // 새로운 _change 옵션 선택 시 이전 타겟 초기화
+                      setShowChangeTargets(true);
+                    } else if (selectedOptionIndex === index) {
+                      // 같은 옵션을 다시 클릭한 경우 (선택 해제)
+                      setSelectedOptionIndex(null);
+                      setShowChangeTargets(false);
+                      setSelectedChangeOption(null);
+                      setSelectedTargetOption(null);
+                    } else {
+                      // 일반 옵션 선택
+                      setSelectedOptionIndex(index);
+                      setShowChangeTargets(false);
+                      setSelectedChangeOption(null);
+                      setSelectedTargetOption(null);
+                    }
                   }}
                 >
                   {selectedOptionIndex === index && (
@@ -728,6 +765,31 @@ function ProcessingGemDisplay({
                       return formatDescription(desc, processingGem);
                     })()}
                   </div>
+                  
+                  {/* _change 옵션의 대상 선택 UI - 선택된 옵션 내부에 위치 */}
+                  {selectedOptionIndex === index && showChangeTargets && selectedChangeOption && (
+                    <div className="change-target-selection">
+                      <div className="change-target-header">  
+                        <span>변경할 대상을 선택하세요:</span>
+                      </div>
+                      <div className="change-target-buttons">
+                        {getAvailableChangeTargets().map((target, idx) => (
+                          <button
+                            key={idx}
+                            className={`change-target-btn ${selectedTargetOption?.optionKey === target.optionKey ? 'selected' : ''}`}
+                            onClick={(e) => {
+                              // 이벤트 전파 방지 (부모 option-display 클릭 이벤트와 충돌 방지)
+                              e.stopPropagation();
+                              // 타겟 옵션 선택만 하기 (실행하지 않음)
+                              setSelectedTargetOption(target);
+                            }}
+                          >
+                            {target.effectName}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
                 ))
               ) : (
@@ -801,14 +863,31 @@ function ProcessingGemDisplay({
                     });
                     
                     // 가공 실행
-                    const newGem = executeGemProcessing(processingGem, selectedOption.action);
+                    const targetOption = selectedOption.action.endsWith('_change') ? selectedTargetOption?.optionKey : null;
+                    const newGem = executeGemProcessing(processingGem, selectedOption.action, targetOption);
                     setProcessingGem(newGem);
                     setProcessingHistory([...processingHistory, newGem]);
                     setSelectedOptionIndex(null);
                     setSelectedHistoryIndex(newGem.processingCount);
+                    
+                    // _change 관련 상태 초기화
+                    setShowChangeTargets(false);
+                    setSelectedChangeOption(null);
+                    setSelectedTargetOption(null);
                   }
                 }}
-                disabled={getCurrentOptionSet().length === 0 || selectedOptionIndex === null}
+                disabled={(() => {
+                  const currentOptionSet = getCurrentOptionSet();
+                  if (currentOptionSet.length === 0 || selectedOptionIndex === null) {
+                    return true;
+                  }
+                  const selectedOption = currentOptionSet[selectedOptionIndex];
+                  // _change 옵션인 경우 타겟이 선택되지 않았으면 비활성화
+                  if (selectedOption.action.endsWith('_change') && !selectedTargetOption) {
+                    return true;
+                  }
+                  return false;
+                })()}
               >
                 옵션 골라서 가공
               </button>
@@ -826,8 +905,21 @@ function ProcessingGemDisplay({
             <button
               className="btn btn-secondary"
               onClick={() => {
-                // 같은 젬을 처음부터 다시 가공
-                const resetGem = createProcessingGem(processingGem.mainType, processingGem.subType, processingGem.grade);
+                // 현재 젬의 조합 추출 (dealerA, dealerB, supportA, supportB의 0/1 패턴)
+                const currentCombination = [
+                  processingGem.dealerA > 0 ? 1 : 0,
+                  processingGem.dealerB > 0 ? 1 : 0, 
+                  processingGem.supportA > 0 ? 1 : 0,
+                  processingGem.supportB > 0 ? 1 : 0
+                ];
+                
+                // 같은 조합으로 젬을 처음부터 다시 가공
+                const resetGem = createProcessingGem(
+                  processingGem.mainType, 
+                  processingGem.subType, 
+                  processingGem.grade, 
+                  currentCombination
+                );
                 setProcessingGem(resetGem);
                 setProcessingHistory([resetGem]);
                 setLastProcessingResult(null);

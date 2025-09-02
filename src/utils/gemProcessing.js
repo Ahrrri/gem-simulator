@@ -2,6 +2,7 @@
 import {
   PROCESSING_POSSIBILITIES,
   PROCESSING_ACTION_DESCRIPTIONS,
+  GEM_EFFECTS,
   getRerollAttempts,
   getProcessingAttempts
 } from './gemConstants.js';
@@ -12,6 +13,11 @@ import {
 // ============================================================================
 // 1. 젬 생성 관련
 // ============================================================================
+
+// 젬 타입과 서브타입으로부터 효과 목록 가져오기
+export function getEffectsForGem(mainType, subType) {
+  return GEM_EFFECTS[mainType]?.[subType] || [];
+}
 
 // 초기 젬 생성 (가공용)
 export function createProcessingGem(mainType, subType, grade = 'UNCOMMON', combination = null) {
@@ -166,7 +172,7 @@ export function rerollProcessingOptions(gem) {
 }
 
 // 가공 실행 (게임 로직용 - 추가 처리 포함)
-export function executeGemProcessing(gem, selectedOption) {
+export function executeGemProcessing(gem, selectedOption, targetOption = null) {
   // 안전성 검사
   if (!gem) {
     return gem;
@@ -176,7 +182,7 @@ export function executeGemProcessing(gem, selectedOption) {
   const processingCost = 900 * (1 + (gem.costModifier || 0) / 100);
   
   // 공통 액션 적용 함수 사용 (횟수 감소/증가 포함)
-  const newGem = applyGemAction(gem, selectedOption);
+  const newGem = applyGemAction(gem, selectedOption, targetOption);
   
   // 비용 누적
   newGem.totalGoldSpent = (gem.totalGoldSpent || 0) + processingCost;
@@ -308,7 +314,7 @@ export async function loadOptionProbabilities(gem, options) {
 // ============================================================================
 
 // 공통 액션 적용 함수 (게임 로직과 확률 계산 모두에서 사용)
-export function applyGemAction(gem, action) {
+export function applyGemAction(gem, action, targetOption = null) {
   const newGem = { ...gem };
   const [property, operation] = action.split('_');
   
@@ -339,9 +345,10 @@ export function applyGemAction(gem, action) {
     case 'supportB':
       if (operation === 'change') {
         // 새로운 changeGemOption 함수 사용
-        const changedGem = changeGemOption(newGem, property);
+        const changedGem = changeGemOption(newGem, property, targetOption);
         if (changedGem) {
-          return changedGem;
+          // 변경된 젬을 newGem에 적용하고 아래 공통 처리를 받도록 함
+          Object.assign(newGem, changedGem);
         }
       } else if (operation.startsWith('+')) {
         const increase = parseInt(operation.substring(1));

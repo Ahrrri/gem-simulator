@@ -1,13 +1,142 @@
 // 젬 가공 관련 확률 테이블 및 로직
 import { 
-  getEffectsForGem, 
-  PROCESSING_POSSIBILITIES, 
-  getActionDescription, 
-  applyGemAction,
-  calculateTotalPoints,
-  getAvailableProcessingOptions,
-  getOptionPointValue
+  GEM_EFFECTS,
+  PROCESSING_POSSIBILITIES,
+  PROCESSING_ACTION_DESCRIPTIONS
 } from './gemConstants.js';
+
+// 젬 타입과 서브타입으로부터 효과 목록 가져오기
+export function getEffectsForGem(mainType, subType) {
+  return GEM_EFFECTS[mainType]?.[subType] || [];
+}
+
+// 공통 액션 적용 함수 (게임 로직과 확률 계산 모두에서 사용)
+export function applyGemAction(gem, action) {
+  const newGem = { ...gem };
+  const [property, operation] = action.split('_');
+  
+  switch (property) {
+    case 'willpower':
+      if (operation.startsWith('+')) {
+        const increase = parseInt(operation.substring(1));
+        newGem.willpower = Math.min(5, newGem.willpower + increase);
+      } else if (operation.startsWith('-')) {
+        const decrease = parseInt(operation.substring(1));
+        newGem.willpower = Math.max(1, newGem.willpower - decrease);
+      }
+      break;
+      
+    case 'corePoint':
+      if (operation.startsWith('+')) {
+        const increase = parseInt(operation.substring(1));
+        newGem.corePoint = Math.min(5, newGem.corePoint + increase);
+      } else if (operation.startsWith('-')) {
+        const decrease = parseInt(operation.substring(1));
+        newGem.corePoint = Math.max(1, newGem.corePoint - decrease);
+      }
+      break;
+      
+    case 'dealerA':
+    case 'dealerB':
+    case 'supportA':
+    case 'supportB':
+      if (operation === 'change') {
+        // 4개 옵션 중에서 현재 0이 아닌 다른 옵션으로 변경
+        const currentOptions = ['dealerA', 'dealerB', 'supportA', 'supportB'];
+        const inactiveOptions = currentOptions.filter(opt => (newGem[opt] || 0) === 0);
+        
+        if (inactiveOptions.length > 0) {
+          // 현재 레벨을 다른 옵션으로 이동
+          const currentLevel = newGem[property] || 0;
+          const randomInactive = inactiveOptions[Math.floor(Math.random() * inactiveOptions.length)];
+          newGem[property] = 0;
+          newGem[randomInactive] = currentLevel;
+        }
+      } else if (operation.startsWith('+')) {
+        const increase = parseInt(operation.substring(1));
+        newGem[property] = Math.min(5, (newGem[property] || 0) + increase);
+      } else if (operation.startsWith('-')) {
+        const decrease = parseInt(operation.substring(1));
+        newGem[property] = Math.max(0, (newGem[property] || 0) - decrease);
+      }
+      break;
+      
+    case 'cost':
+      if (operation === '+100') {
+        newGem.costModifier = Math.min(100, (newGem.costModifier || 0) + 100);
+      } else if (operation === '-100') {
+        newGem.costModifier = Math.max(-100, (newGem.costModifier || 0) - 100);
+      }
+      break;
+      
+    case 'reroll':
+      if (operation.startsWith('+')) {
+        const increase = parseInt(operation.substring(1));
+        newGem.currentRerollAttempts = (newGem.currentRerollAttempts || 0) + increase;
+        newGem.maxRerollAttempts = Math.max(newGem.maxRerollAttempts, newGem.currentRerollAttempts);
+      }
+      break;
+      
+    case 'maintain':
+      // 상태 유지 - 변경사항 없음
+      break;
+  }
+  
+  return newGem;
+}
+
+// 총 포인트 계산 (4개 옵션 시스템)
+export function calculateTotalPoints(gem) {
+  return (gem.willpower || 0) + (gem.corePoint || 0) + 
+         (gem.dealerA || 0) + (gem.dealerB || 0) + 
+         (gem.supportA || 0) + (gem.supportB || 0);
+}
+
+// 젬 상태를 키 문자열로 변환 (메모이제이션용)
+export function gemStateToKey(gem) {
+  // 리롤 횟수를 4로 제한하여 메모이제이션 효율 향상
+  const cappedReroll = Math.min(4, gem.currentRerollAttempts || 0);
+  
+  // 4개 옵션 레벨 (0~5)
+  const dealerA = gem.dealerA || 0;
+  const dealerB = gem.dealerB || 0;  
+  const supportA = gem.supportA || 0;
+  const supportB = gem.supportB || 0;
+  
+  return `${gem.willpower},${gem.corePoint},${dealerA},${dealerB},${supportA},${supportB},${gem.remainingAttempts},${cappedReroll}`;
+}
+
+// 사용 가능한 옵션들 가져오기
+export function getAvailableProcessingOptions(gem) {
+  const options = [];
+  
+  for (const [action, config] of Object.entries(PROCESSING_POSSIBILITIES)) {
+    if (config.condition(gem)) {
+      options.push({
+        action: action,
+        probability: config.probability,
+        description: getActionDescription(action)
+      });
+    }
+  }
+  
+  return options;
+}
+
+// 옵션 설명 가져오기 함수
+export function getActionDescription(action) {
+  return PROCESSING_ACTION_DESCRIPTIONS[action] || action;
+}
+
+// 옵션의 포인트 값 계산 (포인트 변화 옵션만)
+export function getOptionPointValue(action) {
+  // 포인트에 영향을 주는 옵션만 고려
+  const match = action.match(/(willpower|corePoint|dealerA|dealerB|supportA|supportB)_([+-]\d+)/);
+  if (!match) return null; // 포인트 변화가 아닌 옵션은 null 반환
+  
+  const value = parseInt(match[2]);
+  return value;
+}
 
 // 옵션 변경 시 랜덤 효과 선택 (현재 활성화된 두 옵션과 다른 옵션 선택)
 export function selectRandomOptionForChange(mainType, subType, currentActiveOptions) {
@@ -55,23 +184,11 @@ function checkCondition(condition, gem) {
   return false;
 }
 
-// Fisher-Yates 셔플 알고리즘 (완전한 랜덤 셔플)
-function fisherYatesShuffle(array) {
-  const result = [...array];
-  for (let i = result.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [result[i], result[j]] = [result[j], result[i]];
-  }
-  return result;
-}
-
 // 가능한 가공 옵션 생성 (공통 유틸리티 사용)
 function generateProcessingOptions(gem) {
   return getAvailableProcessingOptions(gem);
 }
 
-// ProcessingGemDisplay에서 사용하는 함수를 다시 export
-export { getAvailableProcessingOptions };
 
 // 가공 실행 (게임 로직용 - 추가 처리 포함)
 function executeProcessing(gem, selectedOption) {

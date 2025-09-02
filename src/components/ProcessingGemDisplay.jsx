@@ -3,7 +3,6 @@ import { executeGemProcessing, createProcessingGem, rerollProcessingOptions, get
 import { GEM_TYPES, GEM_EFFECTS } from '../utils/gemConstants';
 import { 
   getGemProbabilities,
-  getProcessingOptionProbabilities,
   formatProbabilities,
   checkServerHealth
 } from '../utils/apiClient';
@@ -93,25 +92,9 @@ function ProcessingGemDisplay({
     }
   };
 
-  // 현재 옵션으로 가공했을 때의 확률 조회
+  // 옵션 확률 기능은 제거됨 (DB 기반 확률 조회 기능 단순화)
   const loadOptionProbabilities = async () => {
-    const currentOptions = getCurrentOptionSet();
-    if (!currentOptions || currentOptions.length === 0) {
-      setOptionProbabilities(null);
-      return;
-    }
-
-    try {
-      const gemState = convertGemToState(processingGem);
-      const optionsWithProbabilities = await getProcessingOptionProbabilities(
-        gemState,
-        currentOptions
-      );
-      setOptionProbabilities(optionsWithProbabilities);
-    } catch (error) {
-      console.error('옵션 확률 조회 실패:', error);
-      setOptionProbabilities(null);
-    }
+    setOptionProbabilities(null);
   };
 
   // 리롤 후 가공 확률 조회

@@ -54,13 +54,6 @@ export async function checkServerHealth() {
 }
 
 /**
- * 데이터베이스 통계 조회
- */
-export async function getDatabaseStats(minAttempts = 3) {
-  return await apiRequest(`/api/stats?minAttempts=${minAttempts}`);
-}
-
-/**
  * 젬 상태별 확률 조회
  */
 export async function getGemProbabilities(gemState) {
@@ -79,136 +72,6 @@ export async function getGemProbabilities(gemState) {
 
   const result = await apiRequest(`/api/gem-probabilities?${params}`);
   return result;
-}
-
-/**
- * 높은 확률 상태들 조회
- */
-export async function getHighProbabilityStates(target = 'prob_ancient', minProb = 0.8, limit = 10) {
-  const params = new URLSearchParams({
-    target,
-    minProb,
-    limit
-  });
-
-  return await apiRequest(`/api/high-probability?${params}`);
-}
-
-/**
- * 커스텀 SQL 쿼리 실행
- */
-export async function executeCustomQuery(sql, params = []) {
-  return await apiRequest('/api/query', {
-    method: 'POST',
-    body: JSON.stringify({ sql, params })
-  });
-}
-
-/**
- * 사용 가능한 옵션들 조회
- */
-export async function getAvailableOptions(gemStateId) {
-  return await apiRequest(`/api/available-options/${gemStateId}`);
-}
-
-/**
- * 여러 젬 상태의 확률을 한번에 조회 (배치 처리)
- */
-export async function getBatchGemProbabilities(gemStates) {
-  const promises = gemStates.map(state => 
-    getGemProbabilities(state).catch(error => {
-      console.warn('확률 조회 실패:', state, error);
-      return null;
-    })
-  );
-  
-  const results = await Promise.all(promises);
-  return results.filter(result => result !== null);
-}
-
-/**
- * 처리 옵션별 예상 확률 계산
- */
-export async function getProcessingOptionProbabilities(currentGem, availableOptions) {
-  try {
-    // 각 옵션을 적용한 후의 젬 상태들 생성
-    const futureStates = availableOptions.map(option => {
-      return {
-        ...applyProcessingAction(currentGem, option.action),
-        optionAction: option.action,
-        optionDescription: option.description,
-        selectionProbability: option.selectionProbability || 0.25
-      };
-    });
-
-    // 배치로 확률 조회
-    const probabilities = await getBatchGemProbabilities(futureStates);
-    
-    // 옵션별 결과 매핑
-    return availableOptions.map((option, index) => ({
-      ...option,
-      futureGemState: futureStates[index],
-      futureProbabilities: probabilities[index] || null
-    }));
-    
-  } catch (error) {
-    console.error('처리 옵션 확률 계산 실패:', error);
-    return availableOptions.map(option => ({
-      ...option,
-      futureProbabilities: null
-    }));
-  }
-}
-
-/**
- * 처리 액션을 젬 상태에 적용 (프론트엔드용 간단 구현)
- */
-function applyProcessingAction(gem, action) {
-  const newGem = {
-    ...gem,
-    remainingAttempts: Math.max(0, gem.remainingAttempts - 1),
-    isFirstProcessing: false
-  };
-
-  // 액션별 처리
-  if (action.startsWith('willpower_')) {
-    const change = parseInt(action.match(/[+-]\d+/)[0]);
-    newGem.willpower = Math.max(1, Math.min(5, gem.willpower + change));
-  } else if (action.startsWith('corePoint_')) {
-    const change = parseInt(action.match(/[+-]\d+/)[0]);
-    newGem.corePoint = Math.max(1, Math.min(5, gem.corePoint + change));
-  } else if (action.startsWith('dealerA_')) {
-    if (action.includes('change')) {
-      // 옵션 변경은 복잡하므로 일단 현재값 유지
-      // 실제로는 백엔드에서 처리해야 함
-    } else {
-      const change = parseInt(action.match(/[+-]\d+/)[0]);
-      newGem.dealerA = Math.max(0, Math.min(5, (gem.dealerA || 0) + change));
-    }
-  } else if (action.startsWith('dealerB_')) {
-    if (!action.includes('change')) {
-      const change = parseInt(action.match(/[+-]\d+/)[0]);
-      newGem.dealerB = Math.max(0, Math.min(5, (gem.dealerB || 0) + change));
-    }
-  } else if (action.startsWith('supportA_')) {
-    if (!action.includes('change')) {
-      const change = parseInt(action.match(/[+-]\d+/)[0]);
-      newGem.supportA = Math.max(0, Math.min(5, (gem.supportA || 0) + change));
-    }
-  } else if (action.startsWith('supportB_')) {
-    if (!action.includes('change')) {
-      const change = parseInt(action.match(/[+-]\d+/)[0]);
-      newGem.supportB = Math.max(0, Math.min(5, (gem.supportB || 0) + change));
-    }
-  } else if (action.startsWith('cost_')) {
-    const change = parseInt(action.match(/[+-]\d+/)[0]);
-    newGem.costModifier = Math.max(-100, Math.min(100, (gem.costModifier || 0) + change));
-  } else if (action.startsWith('reroll_')) {
-    const change = parseInt(action.match(/\+\d+/)[0].slice(1));
-    newGem.currentRerollAttempts = (gem.currentRerollAttempts || 0) + change;
-  }
-
-  return newGem;
 }
 
 /**
@@ -235,12 +98,6 @@ export { ApiError };
 
 export default {
   checkServerHealth,
-  getDatabaseStats,
   getGemProbabilities,
-  getHighProbabilityStates,
-  executeCustomQuery,
-  getAvailableOptions,
-  getBatchGemProbabilities,
-  getProcessingOptionProbabilities,
   formatProbabilities
 };

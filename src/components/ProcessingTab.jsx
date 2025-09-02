@@ -2,8 +2,8 @@ import { useState } from 'react';
 import './ProcessingTab.css';
 import GemCreationSection from './GemCreationSection';
 import ProcessingGemDisplay from './ProcessingGemDisplay';
-import StrategicSimulation from './StrategicSimulation';
 import ImageCapture from './ImageCapture';
+import GoalBasedSimulation from './GoalBasedSimulation';
 import { recognizeGemFromImage, convertToSimulatorFormat } from '../utils/gemImageRecognition';
 // import BatchAnalyzer from './BatchAnalyzer';
 
@@ -114,8 +114,8 @@ function ProcessingTab() {
         />
       </div>
       
-      {/* 전략적 시뮬레이션 섹션 */}
-      <StrategicSimulation />
+      {/* 목표 기반 시뮬레이션 섹션 */}
+      <GoalBasedSimulation processingGem={processingGem} />
       
       {/* 배치 분석 섹션 - 개발 중 */}
       {/* <BatchAnalyzer /> */}

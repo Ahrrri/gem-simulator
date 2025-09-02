@@ -427,7 +427,7 @@ class ProgressVisualizer:
         self.frame_counter = 0
         self.video_writer = None
         self.output_filename = "gem_calculation_progress.mp4"
-        self.fps = 30
+        self.fps = 60
         
         # OpenCV 비디오 라이터 초기화
         if CV2_AVAILABLE:
@@ -946,7 +946,7 @@ def generate_probability_table(enable_visualization=True):
     # 시각화 초기화
     if enable_visualization:
         try:
-            visualizer = ProgressVisualizer(max_attempts=10, max_rerolls=5)
+            visualizer = ProgressVisualizer(max_attempts=10, max_rerolls=7)
             print("📊 진행 상황 시각화 활성화")
             time.sleep(3)
         except Exception as e:
@@ -959,7 +959,7 @@ def generate_probability_table(enable_visualization=True):
     total_states = 0
     
     # 모든 가능한 상태 순회 (Bottom-up: reroll부터, 그다음 remainingAttempts가 작은 것부터). 5*10*3*5*5*6*5*5+a=562500+a
-    for currentRerollAttempts in range(5):  # 0~4 (리롤 횟수를 가장 먼저)
+    for currentRerollAttempts in range(7):  # 0~6 (리롤 횟수를 가장 먼저)
         for remainingAttempts in range(10):  # 0~9 (JavaScript와 일치)
             for costModifier in [-100, 0, 100]:  # 가능한 비용 수정값
                 for willpower in range(1, 6):
@@ -1254,11 +1254,11 @@ if __name__ == "__main__":
         table = generate_probability_table(enable_visualization=enable_viz)
         
         # JSON 파일로 저장
-        json_file = "./probability_table.json"
+        json_file = "./probability_table_reroll_6.json"
         save_to_json(table, json_file)
         
         # SQLite 데이터베이스로 저장
-        db_file = "./probability_table.db"
+        db_file = "./probability_table_reroll_6.db"
         create_database_schema(db_file)
         save_to_database(table, db_file)
         

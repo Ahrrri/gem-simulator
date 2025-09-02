@@ -3,7 +3,6 @@ import './ProcessingTab.css';
 import GemCreationSection from './GemCreationSection';
 import ProcessingGemDisplay from './ProcessingGemDisplay';
 import ImageCapture from './ImageCapture';
-import GoalBasedSimulation from './GoalBasedSimulation';
 import { recognizeGemFromImage, convertToSimulatorFormat } from '../utils/gemImageRecognition';
 // import BatchAnalyzer from './BatchAnalyzer';
 
@@ -115,7 +114,7 @@ function ProcessingTab() {
       </div>
       
       {/* 목표 기반 시뮬레이션 섹션 */}
-      <GoalBasedSimulation processingGem={processingGem} />
+      {/* GoalBasedSimulation 제거됨 - 파이썬 로컬 시뮬레이터로 대체 예정 */}
       
       {/* 배치 분석 섹션 - 개발 중 */}
       {/* <BatchAnalyzer /> */}

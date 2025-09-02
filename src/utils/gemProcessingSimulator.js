@@ -5,7 +5,7 @@ import {
   executeGemProcessing,
   sampleAutoOptionSet,
   rerollProcessingOptions,
-  calculateExactProbabilities
+  loadCurrentProbabilities
 } from './gemProcessing.js';
 
 // API 호출 카운터
@@ -66,12 +66,12 @@ const checkGoalAchieved = (gem, goalKey) => {
   }
 };
 
-// 확률 계산 (기존 calculateExactProbabilities 사용)
+// 확률 계산 (새로운 loadCurrentProbabilities 사용)
 const calculateProbability = async (gem, goalKey) => {
   try {
     apiCallCount++; // API 호출 카운트 증가
-    const probResult = calculateExactProbabilities(gem);
-    return (probResult?.current?.[goalKey] || 0) * 100; // 0~1을 0~100으로 변환
+    const probResult = await loadCurrentProbabilities(gem);
+    return parseFloat(probResult?.[goalKey]?.percent || '0'); // percent는 이미 0~100 형태
   } catch (error) {
     console.error('확률 계산 실패:', error);
     return 0;

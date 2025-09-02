@@ -54,7 +54,7 @@ export async function checkServerHealth() {
 }
 
 /**
- * 젬 상태별 확률 조회
+ * 젬 상태별 확률 조회 (포맷된 결과 반환)
  */
 export async function getGemProbabilities(gemState) {
   const params = new URLSearchParams({
@@ -71,7 +71,7 @@ export async function getGemProbabilities(gemState) {
   });
 
   const result = await apiRequest(`/api/gem-probabilities?${params}`);
-  return result;
+  return formatProbabilities(result);
 }
 
 /**

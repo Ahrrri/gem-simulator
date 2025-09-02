@@ -1,9 +1,18 @@
 import './ProcessingGemDisplay.css';
-import { executeGemProcessing, createProcessingGem, rerollProcessingOptions, getAllOptionsStatus, getProcessingHistory, getProcessingSteps } from '../utils/gemProcessing';
-import { GEM_TYPES, GEM_EFFECTS } from '../utils/gemConstants';
 import { 
-  getGemProbabilities,
-  formatProbabilities,
+  executeGemProcessing, 
+  createProcessingGem, 
+  rerollProcessingOptions, 
+  getAllOptionsStatus, 
+  getProcessingHistory, 
+  getProcessingSteps,
+  convertGemToState,
+  loadCurrentProbabilities,
+  loadRerollProbabilities,
+  loadOptionProbabilities
+} from '../utils/gemProcessing';
+import { GEM_TYPES, GEM_GRADES, GEM_EFFECTS } from '../utils/gemConstants';
+import { 
   checkServerHealth
 } from '../utils/apiClient';
 import { useState, useEffect } from 'react';
@@ -57,18 +66,18 @@ function ProcessingGemDisplay({
       if (isManualOptionSampling) {
         const manualSet = processingGem.manualOptionSet || [];
         if (manualSet.length === 4) {
-          loadCurrentProbabilities();
-          loadOptionProbabilities();
-          loadRerollProbabilities();
+          handleLoadCurrentProbabilities();
+          handleLoadOptionProbabilities();
+          handleLoadRerollProbabilities();
         } else {
           // 4개 미만이면 확률 초기화
           setOptionProbabilities(null);
         }
       } else {
         // 자동 모드에서는 항상 확률 조회
-        loadCurrentProbabilities();
-        loadOptionProbabilities();
-        loadRerollProbabilities();
+        handleLoadCurrentProbabilities();
+        handleLoadOptionProbabilities();
+        handleLoadRerollProbabilities();
       }
     } else {
       setCurrentProbabilities(null);
@@ -78,12 +87,11 @@ function ProcessingGemDisplay({
   }, [processingGem, serverStatus, isManualOptionSampling, processingGem?.manualOptionSet]);
 
   // 현재 젬 상태의 확률 조회
-  const loadCurrentProbabilities = async () => {
+  const handleLoadCurrentProbabilities = async () => {
     try {
       setIsLoadingProbabilities(true);
-      const gemState = convertGemToState(processingGem);
-      const probabilities = await getGemProbabilities(gemState);
-      setCurrentProbabilities(formatProbabilities(probabilities));
+      const probabilities = await loadCurrentProbabilities(processingGem);
+      setCurrentProbabilities(probabilities);
     } catch (error) {
       console.error('현재 확률 조회 실패:', error);
       setCurrentProbabilities(null);
@@ -92,50 +100,35 @@ function ProcessingGemDisplay({
     }
   };
 
-  // 옵션 확률 기능은 제거됨 (DB 기반 확률 조회 기능 단순화)
-  const loadOptionProbabilities = async () => {
-    setOptionProbabilities(null);
+  // 옵션별 확률 조회
+  const handleLoadOptionProbabilities = async () => {
+    try {
+      setIsLoadingProbabilities(true);
+      const currentOptions = getCurrentOptionSet();
+      const probabilities = await loadOptionProbabilities(processingGem, currentOptions);
+      setOptionProbabilities(probabilities);
+    } catch (error) {
+      console.error('옵션 확률 조회 실패:', error);
+      setOptionProbabilities(null);
+    } finally {
+      setIsLoadingProbabilities(false);
+    }
   };
 
   // 리롤 후 가공 확률 조회
-  const loadRerollProbabilities = async () => {
-    if (processingGem.currentRerollAttempts <= 0 || processingGem.processingCount === 0) {
-      setRerollOptionProbabilities(null);
-      return;
-    }
-
+  const handleLoadRerollProbabilities = async () => {
     try {
-      // 리롤된 젬 상태로 확률 조회
-      const rerolledGem = { 
-        ...processingGem, 
-        currentRerollAttempts: processingGem.currentRerollAttempts - 1 
-      };
-      const gemState = convertGemToState(rerolledGem);
-      
-      // 리롤된 상태의 확률을 직접 조회
-      const rerollProbabilities = await getGemProbabilities(gemState);
-      setRerollOptionProbabilities(formatProbabilities(rerollProbabilities));
+      setIsLoadingProbabilities(true);
+      const probabilities = await loadRerollProbabilities(processingGem);
+      setRerollOptionProbabilities(probabilities);
     } catch (error) {
       console.error('리롤 확률 조회 실패:', error);
       setRerollOptionProbabilities(null);
+    } finally {
+      setIsLoadingProbabilities(false);
     }
   };
 
-  // 젬 객체를 백엔드 상태 형식으로 변환
-  const convertGemToState = (gem) => {
-    return {
-      willpower: gem.willpower,
-      corePoint: gem.corePoint,
-      dealerA: gem.dealerA || 0,
-      dealerB: gem.dealerB || 0,
-      supportA: gem.supportA || 0,
-      supportB: gem.supportB || 0,
-      remainingAttempts: gem.remainingAttempts,
-      currentRerollAttempts: gem.currentRerollAttempts || 0,
-      costModifier: gem.costModifier || 0,
-      isFirstProcessing: gem.processingCount === 0
-    };
-  };
 
   // 현재 활성화된 옵션들 가져오기 (0이 아닌 값들)
   const getActiveEffects = (gem) => {
@@ -170,19 +163,20 @@ function ProcessingGemDisplay({
 
   // 옵션 이름 매핑 (4개 옵션을 실제 효과명으로)
   const getEffectName = (gem, optionType) => {
+    const defaultNames = {
+      'dealerA': '첫번째 효과',
+      'dealerB': '두번째 효과', 
+      'supportA': '세번째 효과',
+      'supportB': '네번째 효과'
+    };
+    
     if (!gem.mainType || !gem.subType) {
-      const defaultNames = {
-        'dealerA': '첫번째 효과',
-        'dealerB': '두번째 효과', 
-        'supportA': '세번째 효과',
-        'supportB': '네번째 효과'
-      };
       return defaultNames[optionType] || optionType;
     }
     
-    // gemConstants에서 실제 효과 이름 가져오기
+    // GEM_EFFECTS에서 직접 효과 이름 가져오기
     try {
-      const effects = GEM_EFFECTS[gem.mainType][gem.subType];
+      const effects = GEM_EFFECTS[gem.mainType]?.[gem.subType] || [];
       const index = {
         'dealerA': 0,
         'dealerB': 1, 
@@ -190,15 +184,9 @@ function ProcessingGemDisplay({
         'supportB': 3
       }[optionType];
 
-      return effects[index] || optionType;
+      return effects[index] || defaultNames[optionType] || optionType;
     } catch (error) {
-      console.warn('GEM_EFFECTS를 가져올 수 없음:', error);
-      const defaultNames = {
-        'dealerA': '첫번째 효과',
-        'dealerB': '두번째 효과', 
-        'supportA': '세번째 효과',
-        'supportB': '네번째 효과'
-      };
+      console.warn('효과 이름을 가져올 수 없음:', error);
       return defaultNames[optionType] || optionType;
     }
   };
@@ -213,9 +201,9 @@ function ProcessingGemDisplay({
       console.log('✅ API 서버 연결 새로고침 성공');
       
       if (processingGem) {
-        await loadCurrentProbabilities();
-        await loadOptionProbabilities();
-        await loadRerollProbabilities();
+        await handleLoadCurrentProbabilities();
+        await handleLoadOptionProbabilities();
+        await handleLoadRerollProbabilities();
       }
     } catch (error) {
       setServerStatus('error');
@@ -249,15 +237,7 @@ function ProcessingGemDisplay({
   };
 
   const getGradeName = (grade) => {
-    const gradeNames = {
-      LEGENDARY: '전설',
-      RELIC: '유물',
-      ANCIENT: '고대',
-      UNCOMMON: '고급',
-      RARE: '희귀',
-      HEROIC: '영웅'
-    };
-    return gradeNames[grade] || grade;
+    return GEM_GRADES[grade] || grade;
   };
 
   const getGradeByPoints = (totalPoints) => {
@@ -920,7 +900,7 @@ function ProcessingGemDisplay({
                   let optionProb = '0.0';
                   if (optionProbabilities && optionProbabilities.length > 0) {
                     const validProbs = optionProbabilities
-                      .map(opt => opt.futureProbabilities ? formatProbabilities(opt.futureProbabilities)?.[target]?.percent || '0.0' : '0.0')
+                      .map(opt => opt.resultProbabilities ? opt.resultProbabilities?.[target]?.percent || '0.0' : '0.0')
                       .map(p => parseFloat(p))
                       .filter(p => !isNaN(p));
                     
@@ -959,8 +939,8 @@ function ProcessingGemDisplay({
                               <div className="prob-tooltip">
                                 <div className="tooltip-title">각 옵션별 {currentProbabilities?.[target]?.label || target} 확률</div>
                                 {optionProbabilities.map((option, idx) => {
-                                  const optionTargetProb = option.futureProbabilities ? 
-                                    formatProbabilities(option.futureProbabilities)?.[target]?.percent || '0.0' : '0.0';
+                                  const optionTargetProb = option.resultProbabilities ? 
+                                    option.resultProbabilities?.[target]?.percent || '0.0' : '0.0';
                                   const optionDesc = option.description || option.action;
                                   
                                   return (

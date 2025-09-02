@@ -255,6 +255,26 @@ export const PROCESSING_ACTION_DESCRIPTIONS = {
   'reroll_+2': '다른 항목 보기 +2회 증가'
 };
 
+// 등급별 다른 항목 보기 횟수 설정
+export const getRerollAttempts = (grade) => {
+  switch (grade) {
+    case 'UNCOMMON': return 0;  // 고급 젬 (0회)
+    case 'RARE': return 1;      // 희귀 젬 (1회)
+    case 'HEROIC': return 2;    // 영웅 젬 (2회)
+    default: return 0;
+  }
+};
+
+// 등급별 가공 횟수 설정
+export const getProcessingAttempts = (grade) => {
+  switch (grade) {
+    case 'UNCOMMON': return 5;  // 고급 젬 (5회)
+    case 'RARE': return 7;      // 희귀 젬 (7회)
+    case 'HEROIC': return 9;    // 영웅 젬 (9회)
+    default: return 5;
+  }
+};
+
 export default {
   GEM_TYPES,
   GEM_EFFECTS,
@@ -267,5 +287,7 @@ export default {
   FUSION_GRADE_PROBABILITY,
   LEGENDARY_POINT_DISTRIBUTION,
   RELIC_POINT_DISTRIBUTION,
-  ANCIENT_POINT_DISTRIBUTION
+  ANCIENT_POINT_DISTRIBUTION,
+  getRerollAttempts,
+  getProcessingAttempts
 };

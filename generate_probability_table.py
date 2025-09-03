@@ -6,18 +6,24 @@
 브라우저에서는 이 파일을 로드하여 즉시 확률을 조회할 수 있습니다.
 """
 
-import json
 import time
 import sys
 import inspect
 import threading
 import sqlite3
 import numpy as np
+import matplotlib
 import matplotlib.pyplot as plt
+import random
 from matplotlib.colors import LinearSegmentedColormap, ListedColormap
 from typing import Dict, Any, Tuple, List
 from dataclasses import dataclass
 from itertools import combinations, permutations
+from math import comb
+
+# 상수 정의
+MAX_REROLL_ATTEMPTS = 7  # 전체 상태 생성 시 고려하는 최대 리롤 횟수 (0~6)
+MAX_REROLL_FOR_MEMOIZATION = MAX_REROLL_ATTEMPTS - 1  # 메모이제이션 효율성을 위한 리롤 횟수 상한 (6)
 import shutil
 import os
 
@@ -173,11 +179,11 @@ def check_condition(condition: str, gem: GemState) -> bool:
         return gem.supportB > 1
     elif condition == 'supportB > 0':
         return gem.supportB > 0
-    elif 'costModifier' in condition and 'remainingAttempts' in condition:
+    elif 'costModifier' in condition:
         if '< 100' in condition:
-            return gem.costModifier < 100 and gem.remainingAttempts > 1
+            return gem.costModifier < 100
         else:
-            return gem.costModifier > -100 and gem.remainingAttempts > 1
+            return gem.costModifier > -100
     elif condition == 'remainingAttempts > 1':
         return gem.remainingAttempts > 1
     
@@ -287,14 +293,13 @@ def apply_processing(gem: GemState, action: str) -> GemState:
             new_gem.dealerA = min(5, new_gem.dealerA + change)
         elif '-' in action:
             change = int(action.split('-')[1])
-            new_gem.dealerA = max(0, new_gem.dealerA - change)
+            new_gem.dealerA = max(1, new_gem.dealerA - change)
         elif action == 'dealerA_change':
             # 4개 옵션 중에서 현재 0인 다른 옵션으로 이동
             current_options = ['dealerA', 'dealerB', 'supportA', 'supportB']
             inactive_options = [opt for opt in current_options if getattr(new_gem, opt) == 0]
             
             if inactive_options:
-                import random
                 current_level = new_gem.dealerA
                 random_inactive = random.choice(inactive_options)
                 new_gem.dealerA = 0
@@ -305,13 +310,12 @@ def apply_processing(gem: GemState, action: str) -> GemState:
             new_gem.dealerB = min(5, new_gem.dealerB + change)
         elif '-' in action:
             change = int(action.split('-')[1])
-            new_gem.dealerB = max(0, new_gem.dealerB - change)
+            new_gem.dealerB = max(1, new_gem.dealerB - change)
         elif action == 'dealerB_change':
             current_options = ['dealerA', 'dealerB', 'supportA', 'supportB']
             inactive_options = [opt for opt in current_options if getattr(new_gem, opt) == 0]
             
             if inactive_options:
-                import random
                 current_level = new_gem.dealerB
                 random_inactive = random.choice(inactive_options)
                 new_gem.dealerB = 0
@@ -322,13 +326,12 @@ def apply_processing(gem: GemState, action: str) -> GemState:
             new_gem.supportA = min(5, new_gem.supportA + change)
         elif '-' in action:
             change = int(action.split('-')[1])
-            new_gem.supportA = max(0, new_gem.supportA - change)
+            new_gem.supportA = max(1, new_gem.supportA - change)
         elif action == 'supportA_change':
             current_options = ['dealerA', 'dealerB', 'supportA', 'supportB']
             inactive_options = [opt for opt in current_options if getattr(new_gem, opt) == 0]
             
             if inactive_options:
-                import random
                 current_level = new_gem.supportA
                 random_inactive = random.choice(inactive_options)
                 new_gem.supportA = 0
@@ -339,13 +342,12 @@ def apply_processing(gem: GemState, action: str) -> GemState:
             new_gem.supportB = min(5, new_gem.supportB + change)
         elif '-' in action:
             change = int(action.split('-')[1])
-            new_gem.supportB = max(0, new_gem.supportB - change)
+            new_gem.supportB = max(1, new_gem.supportB - change)
         elif action == 'supportB_change':
             current_options = ['dealerA', 'dealerB', 'supportA', 'supportB']
             inactive_options = [opt for opt in current_options if getattr(new_gem, opt) == 0]
             
             if inactive_options:
-                import random
                 current_level = new_gem.supportB
                 random_inactive = random.choice(inactive_options)
                 new_gem.supportB = 0
@@ -412,7 +414,6 @@ class ProgressVisualizer:
         self.progress = np.zeros((self.image_height, self.image_width))
         
         # matplotlib 설정 (headless mode)
-        import matplotlib
         matplotlib.use('Agg')  # GUI 없이 이미지만 생성
         plt.ioff()  # 비인터랙티브 모드
         self.fig, self.ax = plt.subplots(figsize=(15, 8), dpi=100)
@@ -437,13 +438,13 @@ class ProgressVisualizer:
                 # Agg backend를 사용하여 배열 가져오기
                 canvas = self.fig.canvas
                 width, height = canvas.get_width_height()
-                buf = np.frombuffer(canvas.buffer_rgba(), dtype=np.uint8)
+                buf = np.frombuffer(canvas.buffer_rgba(), dtype=np.uint8) # type: ignore
                 buf = buf.reshape((height, width, 4))  # RGBA
                 buf_rgb = buf[:, :, :3]  # RGB로 변환
                 height, width = buf_rgb.shape[:2]
                 
                 # 비디오 라이터 생성
-                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                fourcc = cv2.VideoWriter_fourcc(*'mp4v') # type: ignore
                 self.video_writer = cv2.VideoWriter(self.output_filename, fourcc, self.fps, (width, height))
                 print(f"📹 실시간 영상 생성 시작: {self.output_filename} ({width}x{height})")
                 
@@ -502,7 +503,7 @@ class ProgressVisualizer:
                 width, height = canvas.get_width_height()
                 
                 # Agg backend에서 buffer_rgba() 사용
-                buf = np.frombuffer(canvas.buffer_rgba(), dtype=np.uint8)
+                buf = np.frombuffer(canvas.buffer_rgba(), dtype=np.uint8) # type: ignore
                 buf = buf.reshape((height, width, 4))  # RGBA
                 
                 # RGBA를 RGB로 변환 (알파 채널 제거)
@@ -548,11 +549,11 @@ class ProgressVisualizer:
                     print(f"💾 중간 영상 저장: {base_name} ({self.frame_counter}프레임)")
                 
                 # 비디오 라이터 재초기화
-                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                fourcc = cv2.VideoWriter_fourcc(*'mp4v') # type: ignore
                 self.fig.canvas.draw()
                 canvas = self.fig.canvas
                 width, height = canvas.get_width_height()
-                buf = np.frombuffer(canvas.buffer_rgba(), dtype=np.uint8)
+                buf = np.frombuffer(canvas.buffer_rgba(), dtype=np.uint8) # type: ignore
                 buf = buf.reshape((height, width, 4))  # RGBA
                 buf_rgb = buf[:, :, :3]  # RGB로 변환
                 height, width = buf_rgb.shape[:2]
@@ -700,9 +701,9 @@ def create_generalized_gem_pattern(gem: GemState) -> str:
     return f"{gem.willpower},{gem.corePoint},{option_pattern},{has_attempts},{gem.costModifier}"
 
 def state_to_key(gem: GemState) -> str:
-    """젬 상태를 키 문자열로 변환 (4개 옵션 시스템, 리롤 횟수는 4 이상을 4로 통일)"""
-    # 리롤 횟수는 4 이상을 모두 4로 간주 (메모이제이션 효율성)
-    capped_reroll = min(4, gem.currentRerollAttempts)
+    """젬 상태를 키 문자열로 변환 (4개 옵션 시스템, 리롤 횟수는 상한까지만)"""
+    # 리롤 횟수는 상한 이상을 모두 상한으로 간주 (메모이제이션 효율성)
+    capped_reroll = min(MAX_REROLL_FOR_MEMOIZATION, gem.currentRerollAttempts)
     first_processing = 1 if gem.isFirstProcessing else 0
     return f"{gem.willpower},{gem.corePoint},{gem.dealerA},{gem.dealerB},{gem.supportA},{gem.supportB},{gem.remainingAttempts},{capped_reroll},{gem.costModifier},{first_processing}"
 
@@ -729,7 +730,9 @@ def calculate_probabilities(gem: GemState, memo: Dict[str, Dict], combo_memo: Di
         'sum8+': (gem.willpower + gem.corePoint) >= 8,
         'sum9+': (gem.willpower + gem.corePoint) >= 9,
         'relic+': (gem.willpower + gem.corePoint + gem.dealerA + gem.dealerB + gem.supportA + gem.supportB) >= 16,
-        'ancient+': (gem.willpower + gem.corePoint + gem.dealerA + gem.dealerB + gem.supportA + gem.supportB) >= 19
+        'ancient+': (gem.willpower + gem.corePoint + gem.dealerA + gem.dealerB + gem.supportA + gem.supportB) >= 19,
+        'dealer_active': gem.dealerA > 0 and gem.dealerB > 0,
+        'support_active': gem.supportA > 0 and gem.supportB > 0
     }
     
     # 현재 상태에서 각 목표 달성 여부를 기본값으로 설정
@@ -757,12 +760,12 @@ def calculate_probabilities(gem: GemState, memo: Dict[str, Dict], combo_memo: Di
         total_combo_count = sum(len(combos) for combos in combo_memo.values())
         elapsed_time = time.time() - start_time if start_time else 0
         avg_time_per_state = elapsed_time / calculation_counter if calculation_counter > 0 else 0
-        from math import comb
         available_count = len(available_options)
         combo_4_count = comb(available_count, 4) if available_count >= 4 else 0
         print(f"기저 조건: {calculation_counter:>5d}개 상태 ({key}) "
               f"sum8+: {base_probabilities['sum8+']:.6f}, sum9+: {base_probabilities['sum9+']:.6f}, "
               f"relic+: {base_probabilities['relic+']:.6f}, ancient+: {base_probabilities['ancient+']:.6f}, "
+              f"dealer: {base_probabilities['dealer_active']:.6f}, support: {base_probabilities['support_active']:.6f}, "
               f"memo_hit: {memo_hit_count:2d}개, combo_memo: {len(combo_memo)}패턴/{total_combo_count}조합, "
               f"options: {available_count}개, 4조합: {combo_4_count}개, "
               f"경과시간: {elapsed_time:.2f}s, 평균: {avg_time_per_state * 1000:.3f}s/1000 상태")
@@ -800,92 +803,65 @@ def calculate_probabilities(gem: GemState, memo: Dict[str, Dict], combo_memo: Di
             remainingAttempts=gem.remainingAttempts,
             currentRerollAttempts=actual_reroll_after,
             costModifier=gem.costModifier,
-            isFirstProcessing=False  # 리롤 후에도 첫 가공이 아님
+            isFirstProcessing=False  # 리롤 후는 당연히 첫 가공이 아닌 상태임
         )
         reroll_future_probs = calculate_probabilities(rerolled_gem, memo, combo_memo)
     
-    # 4개 이하인 경우 (현실적으로 거의 없음)
-    if len(available_options) <= 4:
-        print(f"⚠️ 드문 경우: 옵션이 {len(available_options)}개만 있음. 젬 상태: {key}")
-        # 각 옵션별로 진행했을 때의 확률 계산
-        for target in targets:
-            progress_value = 0.0
-            for option in available_options:
-                next_gem = apply_processing(gem, option['action'])
-                future_probs = calculate_probabilities(next_gem, memo, combo_memo)
-                progress_value += future_probs[target] / len(available_options)
-            
-            # 현재 상태, 진행, 리롤 중 최적 선택
-            options_for_target = [base_probabilities[target], progress_value]
-            if can_reroll and reroll_future_probs:
-                options_for_target.append(reroll_future_probs[target])
-            
-            result[target] = max(options_for_target)
-    else:
-        # 4개 초과면 모든 4개 조합을 고려
-        from itertools import combinations
-        
-        # 모든 target에 대한 결과 초기화
-        for target in targets:
-            result[target] = 0.0
-        
-        # 전역 젬 패턴별 조합 확률 메모이제이션 사용
-        generalized_gem_pattern = create_generalized_gem_pattern(gem)
-        
-        # 조합 확률들 계산 또는 캐시에서 가져오기
-        combo_probs = {}
-        if generalized_gem_pattern in combo_memo:
-            # 캐시된 조합 확률들 사용
-            combo_probs = combo_memo[generalized_gem_pattern]
-        else:
-            # 새로운 젬 패턴 - 모든 4개 조합 확률 미리 계산
-            for combo_indices in combinations(range(len(available_options)), 4):
-                combo_prob = calculate_4combo_probability(
-                    list(combo_indices), 
-                    [opt['probability'] for opt in available_options]
-                )
-                combo_probs[combo_indices] = combo_prob
-            
-            # 조합 확률들을 메모이제이션에 저장
-            combo_memo[generalized_gem_pattern] = combo_probs
-        
-        # 모든 4개 조합에 대해 실제 확률 계산
-        for combo_indices, combo_prob in combo_probs.items():
-            combo_options = [available_options[i] for i in combo_indices]
-            
-            # 이 조합의 각 옵션별 미래 확률 계산
-            combo_future_probs = {}
-            for option in combo_options:
-                next_gem = apply_processing(gem, option['action'])
-                future_probs = calculate_probabilities(next_gem, memo, combo_memo)
-                combo_future_probs[option['action']] = future_probs
-            
-            # 모든 target에 대해 이 조합의 기여도 계산
-            for target in targets:
-                # 이 조합에서의 진행 확률 (4개 중 균등 선택)
-                combo_progress_value = 0.0
-                for option in combo_options:
-                    combo_progress_value += combo_future_probs[option['action']][target] * 0.25
-                
-                # 이 조합에서 최적 선택 (현재 상태, 진행, 리롤 중)
-                combo_options_list = [base_probabilities[target], combo_progress_value]
-                if can_reroll and reroll_future_probs:
-                    combo_options_list.append(reroll_future_probs[target])
-                
-                combo_best = max(combo_options_list)
-                result[target] += combo_prob * combo_best
-        
-        # 선택 확률 계산 (조합 확률 재사용)
-        selection_probs = {opt['action']: 0.0 for opt in available_options}
-        for combo_indices, combo_prob in combo_probs.items():
-            for idx in combo_indices:
-                selection_probs[available_options[idx]['action']] += combo_prob * 0.25
+    # 모든 target에 대한 결과 초기화
+    for target in targets:
+        result[target] = 0.0
     
-    # 4개 이하인 경우에는 별도로 선택 확률 계산
-    if len(available_options) <= 4:
-        print(f"⚠️ 드문 경우: selectionProbability를 균등 분할 계산")
-        selection_prob = 1.0 / len(available_options)
-        selection_probs = {opt['action']: selection_prob for opt in available_options}
+    # 전역 젬 패턴별 조합 확률 메모이제이션 사용
+    generalized_gem_pattern = create_generalized_gem_pattern(gem)
+    
+    # 조합 확률들 계산 또는 캐시에서 가져오기
+    combo_probs = {}
+    if generalized_gem_pattern in combo_memo:
+        # 캐시된 조합 확률들 사용
+        combo_probs = combo_memo[generalized_gem_pattern]
+    else:
+        # 새로운 젬 패턴 - 모든 4개 조합 확률 미리 계산
+        for combo_indices in combinations(range(len(available_options)), 4):
+            combo_prob = calculate_4combo_probability(
+                list(combo_indices), 
+                [opt['probability'] for opt in available_options]
+            )
+            combo_probs[combo_indices] = combo_prob
+        
+        # 조합 확률들을 메모이제이션에 저장
+        combo_memo[generalized_gem_pattern] = combo_probs
+    
+    # 모든 4개 조합에 대해 실제 확률 계산
+    for combo_indices, combo_prob in combo_probs.items():
+        combo_options = [available_options[i] for i in combo_indices]
+        
+        # 이 조합의 각 옵션별 미래 확률 계산
+        combo_future_probs = {}
+        for option in combo_options:
+            next_gem = apply_processing(gem, option['action'])
+            future_probs = calculate_probabilities(next_gem, memo, combo_memo)
+            combo_future_probs[option['action']] = future_probs
+        
+        # 모든 target에 대해 이 조합의 기여도 계산
+        for target in targets:
+            # 이 조합에서의 진행 확률 (4개 중 균등 선택)
+            combo_progress_value = 0.0
+            for option in combo_options:
+                combo_progress_value += combo_future_probs[option['action']][target] * 0.25
+            
+            # 이 조합에서 최적 선택 (현재 상태, 진행, 리롤 중)
+            combo_options_list = [base_probabilities[target], combo_progress_value]
+            if can_reroll and reroll_future_probs:
+                combo_options_list.append(reroll_future_probs[target])
+            
+            combo_best = max(combo_options_list)
+            result[target] += combo_prob * combo_best
+    
+    # 선택 확률 계산 (조합 확률 재사용)
+    selection_probs = {opt['action']: 0.0 for opt in available_options}
+    for combo_indices, combo_prob in combo_probs.items():
+        for idx in combo_indices:
+            selection_probs[available_options[idx]['action']] += combo_prob * 0.25
     
     # availableOptions에 선택 확률 추가
     options_with_probs = []
@@ -894,7 +870,7 @@ def calculate_probabilities(gem: GemState, memo: Dict[str, Dict], combo_memo: Di
             'action': option['action'],
             'probability': option['probability'],
             'description': option.get('description', ''),
-            'selectionProbability': selection_probs[option['action']]  # 실제로 선택될 확률
+            'selectionProbability': selection_probs[option['action']]  # 실제로 더 이상 리롤하지 않았을 때 선택될 확률
         })
     
     memo[key] = {
@@ -911,12 +887,12 @@ def calculate_probabilities(gem: GemState, memo: Dict[str, Dict], combo_memo: Di
     total_combo_count = sum(len(combos) for combos in combo_memo.values())
     elapsed_time = time.time() - start_time if start_time else 0
     avg_time_per_state = elapsed_time / calculation_counter if calculation_counter > 0 else 0
-    from math import comb
     available_count = len(available_options)
     combo_4_count = comb(available_count, 4) if available_count >= 4 else 0
     print(f"계산 완료: {calculation_counter:>5d}개 상태 ({key}) "
           f"sum8+: {result['sum8+']:.6f}, sum9+: {result['sum9+']:.6f}, "
           f"relic+: {result['relic+']:.6f}, ancient+: {result['ancient+']:.6f}, "
+          f"dealer: {result['dealer_active']:.6f}, support: {result['support_active']:.6f}, "
           f"memo_hit: {memo_hit_count:2d}개, combo_memo: {len(combo_memo)}패턴/{total_combo_count}조합, "
           f"options: {available_count}개, 4조합: {combo_4_count}개, "
           f"경과시간: {elapsed_time:.2f}s, 평균: {avg_time_per_state * 1000:.3f}s/1000 상태")
@@ -946,7 +922,7 @@ def generate_probability_table(enable_visualization=True):
     # 시각화 초기화
     if enable_visualization:
         try:
-            visualizer = ProgressVisualizer(max_attempts=10, max_rerolls=7)
+            visualizer = ProgressVisualizer(max_attempts=10, max_rerolls=MAX_REROLL_ATTEMPTS)
             print("📊 진행 상황 시각화 활성화")
             time.sleep(3)
         except Exception as e:
@@ -959,7 +935,7 @@ def generate_probability_table(enable_visualization=True):
     total_states = 0
     
     # 모든 가능한 상태 순회 (Bottom-up: reroll부터, 그다음 remainingAttempts가 작은 것부터). 5*10*3*5*5*6*5*5+a=562500+a
-    for currentRerollAttempts in range(7):  # 0~6 (리롤 횟수를 가장 먼저)
+    for currentRerollAttempts in range(MAX_REROLL_ATTEMPTS):  # 0~(MAX_REROLL_ATTEMPTS-1) (리롤 횟수를 가장 먼저)
         for remainingAttempts in range(10):  # 0~9 (JavaScript와 일치)
             for costModifier in [-100, 0, 100]:  # 가능한 비용 수정값
                 for willpower in range(1, 6):
@@ -1049,15 +1025,6 @@ def generate_probability_table(enable_visualization=True):
     
     return probability_table
 
-def save_to_json(table: dict, filename: str):
-    """테이블을 JSON 파일로 저장"""
-    with open(filename, 'w', encoding='utf-8') as f:
-        json.dump(table, f, indent=2, ensure_ascii=False)
-    
-    # 파일 크기 확인
-    import os
-    file_size_mb = os.path.getsize(filename) / 1024 / 1024
-    print(f"💾 {filename}에 저장 완료 ({file_size_mb:.1f} MB)")
 
 def create_database_schema(db_path: str):
     """SQLite 데이터베이스 스키마 생성"""
@@ -1089,6 +1056,8 @@ def create_database_schema(db_path: str):
             prob_sum9 REAL NOT NULL,
             prob_relic REAL NOT NULL,
             prob_ancient REAL NOT NULL,
+            prob_dealer_active REAL NOT NULL,
+            prob_support_active REAL NOT NULL,
             UNIQUE(willpower, corePoint, dealerA, dealerB, supportA, supportB, 
                    remainingAttempts, currentRerollAttempts, costModifier, isFirstProcessing)
         )
@@ -1111,16 +1080,6 @@ def create_database_schema(db_path: str):
     cursor.execute("""
         CREATE INDEX IF NOT EXISTS idx_willpower_corepoint 
         ON gem_states (willpower, corePoint)
-    """)
-    
-    cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_probabilities 
-        ON gem_states (prob_sum8, prob_sum9, prob_relic, prob_ancient)
-    """)
-    
-    cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_attempts 
-        ON gem_states (remainingAttempts, currentRerollAttempts)
     """)
     
     conn.commit()
@@ -1155,8 +1114,8 @@ def save_to_database(table: dict, db_path: str):
                 willpower, corePoint, dealerA, dealerB, supportA, supportB,
                 remainingAttempts, currentRerollAttempts, costModifier, isFirstProcessing,
                 prob_5_5, prob_5_4, prob_4_5, prob_5_3, prob_4_4, prob_3_5,
-                prob_sum8, prob_sum9, prob_relic, prob_ancient
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                prob_sum8, prob_sum9, prob_relic, prob_ancient, prob_dealer_active, prob_support_active
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             wp, cp, dealerA, dealerB, supportA, supportB,
             attempts, reroll, cost, isFirstProcessing,
@@ -1169,7 +1128,9 @@ def save_to_database(table: dict, db_path: str):
             probabilities.get('sum8+', 0.0),
             probabilities.get('sum9+', 0.0),
             probabilities.get('relic+', 0.0),
-            probabilities.get('ancient+', 0.0)
+            probabilities.get('ancient+', 0.0),
+            probabilities.get('dealer_active', 0.0),
+            probabilities.get('support_active', 0.0)
         ))
         
         gem_state_id = cursor.lastrowid
@@ -1197,7 +1158,6 @@ def save_to_database(table: dict, db_path: str):
     conn.close()
     
     # 파일 크기 확인
-    import os
     file_size_mb = os.path.getsize(db_path) / 1024 / 1024
     print(f"💾 데이터베이스 저장 완료: {db_path} ({file_size_mb:.1f} MB)")
 
@@ -1253,12 +1213,8 @@ if __name__ == "__main__":
         # 확률 테이블 생성
         table = generate_probability_table(enable_visualization=enable_viz)
         
-        # JSON 파일로 저장
-        json_file = "./probability_table_reroll_6.json"
-        save_to_json(table, json_file)
-        
         # SQLite 데이터베이스로 저장
-        db_file = "./probability_table_reroll_6.db"
+        db_file = f"./probability_table_reroll_{MAX_REROLL_FOR_MEMOIZATION}.db"
         create_database_schema(db_file)
         save_to_database(table, db_file)
         
@@ -1266,7 +1222,6 @@ if __name__ == "__main__":
         query_database_examples(db_file)
         
         print(f"\n🚀 사용법:")
-        print(f"JSON: {json_file}을 프로젝트에서 import")
         print(f"DB: {db_file}를 SQLite로 쿼리")
         print(f"예: SELECT * FROM gem_states WHERE prob_ancient > 0.8 ORDER BY prob_ancient DESC;")
         

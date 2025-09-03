@@ -34,3 +34,4 @@ probability_table.db
 probability_table.json
 probability_table.db-shm
 probability_table.db-wal
+__pycache__/generate_probability_table.cpython-313.pyc

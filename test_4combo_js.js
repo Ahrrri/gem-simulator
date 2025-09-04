@@ -247,7 +247,7 @@ function main() {
         }
     } else {
         // 기본값 사용 (사용자가 제공한 예시)
-        gemValues = [1, 3, 2, 0, 5, 0, 2, 1, 0, false];
+        gemValues = [2, 1, 3, 0, 1, 0, 5, 1, 0, false];
     }
     
     const result = testGemState(gemValues);

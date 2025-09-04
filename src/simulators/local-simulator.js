@@ -27,7 +27,7 @@ let db = null;
 const probabilityCache = new Map(); // 확률 캐시
 
 try {
-  const dbPath = path.join(__dirname, '../../probability_table.db');
+  const dbPath = path.join(__dirname, '../../probability_table_reroll_6.db');
   db = new sqlite3.Database(dbPath, sqlite3.OPEN_READONLY);
   console.log('✅ SQLite 데이터베이스 연결 완료');
 } catch (error) {
@@ -959,7 +959,7 @@ const main = async () => {
   
   try {
     // 목표 시뮬레이션
-    const result = await runSimulation('ORDER', 'STABLE', 'RARE', goalKey, { simulationRuns });
+    const result = await runSimulation('ORDER', 'STABLE', 'HEROIC', goalKey, { simulationRuns });
     
     console.log('\n🎯 결과:');
     console.log(`성공률: ${result.successRate.toFixed(1)}% (${result.successCount}/${result.simulationRuns})`);

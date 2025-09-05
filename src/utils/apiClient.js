@@ -100,6 +100,10 @@ export function formatProbabilities(probabilities) {
     result.percentiles = probabilities.percentiles;
   }
 
+  // selectionProbabilities 정보 추가 (있는 경우)
+  if (probabilities.availableOptions) {
+    result.availableOptions = probabilities.availableOptions;
+  }
   return result;
 }
 

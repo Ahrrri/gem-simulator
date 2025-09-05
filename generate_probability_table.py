@@ -1,9 +1,6 @@
 #!/usr/bin/env python3
 """
-젬 가공 확률 테이블을 사전 계산하여 JSON 파일로 저장하는 스크립트
-
-모든 가능한 젬 상태 (27,500개)에 대해 확률을 계산하여 정적 파일로 저장합니다.
-브라우저에서는 이 파일을 로드하여 즉시 확률을 조회할 수 있습니다.
+젬 가공 확률 테이블을 사전 계산하여 저장하는 스크립트
 """
 
 import time
@@ -1200,10 +1197,28 @@ def create_database_schema(db_path: str):
         )
     """)
     
+    # 기대 비용 테이블 (목표별 최소 비용)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS gem_expected_costs (
+            gem_state_id INTEGER NOT NULL,
+            target TEXT NOT NULL,
+            expected_cost_to_goal REAL NOT NULL,
+            expected_attempts REAL NOT NULL,
+            can_achieve_goal BOOLEAN NOT NULL,
+            FOREIGN KEY (gem_state_id) REFERENCES gem_states (id),
+            PRIMARY KEY (gem_state_id, target)
+        )
+    """)
+    
     # 인덱스 생성
     cursor.execute("""
         CREATE INDEX IF NOT EXISTS idx_willpower_corepoint 
         ON gem_states (willpower, corePoint)
+    """)
+    
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_expected_costs_target 
+        ON gem_expected_costs (target, expected_cost_to_goal)
     """)
     
     conn.commit()

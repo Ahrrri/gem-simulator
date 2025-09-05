@@ -24,6 +24,8 @@ function ProcessingGemDisplay({
   setProcessingHistory,
   lastProcessingResult,
   setLastProcessingResult,
+  showDisplayProbability,
+  setShowDisplayProbability,
   showNormalizedProbability,
   setShowNormalizedProbability
 }) {
@@ -424,14 +426,34 @@ function ProcessingGemDisplay({
           <div className="options-status-panel">
             <div className="options-status-header">
               <h4>⚙️ 가공 옵션 상태</h4>
-              <label className="probability-checkbox">
-                <input
-                  type="checkbox"
-                  checked={showNormalizedProbability}
-                  onChange={(e) => setShowNormalizedProbability(e.target.checked)}
-                />
-                불가능 옵션 고려한 확률 표시
-              </label>
+              <div className="probability-checkboxes">
+                <label className="probability-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={showDisplayProbability}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setShowNormalizedProbability(false);
+                      }
+                      setShowDisplayProbability(e.target.checked);
+                    }}
+                  />
+                  출현 확률 표시
+                </label>
+                <label className="probability-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={showNormalizedProbability}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setShowDisplayProbability(false);
+                      }
+                      setShowNormalizedProbability(e.target.checked);
+                    }}
+                  />
+                  총합 400 기준 가중치
+                </label>
+              </div>
             </div>
             {(() => {
               const allOptions = getAllOptionsStatus(processingGem);
@@ -439,18 +461,34 @@ function ProcessingGemDisplay({
               // 선택된 4개 옵션의 액션들 추출
               const selectedActions = new Set(getCurrentOptionSet().map(opt => opt.action));
               
-              // 정규화된 확률 계산 (체크박스가 체크된 경우)
-              let normalizedOptions = allOptions;
-              if (showNormalizedProbability) {
+              // 확률 표시 모드에 따른 계산
+              let displayOptions = allOptions;
+              
+              if (showDisplayProbability && currentProbabilities?.availableOptions) {
+                // 모드 1: DB에서 온 selectionProbability × 4가 실제 출현 확률
+                const selectionProbMap = {};
+                currentProbabilities.availableOptions.forEach(apiOpt => {
+                  selectionProbMap[apiOpt.action] = apiOpt.selectionProbability;
+                });
+                
+                displayOptions = allOptions.map(opt => ({
+                  ...opt,
+                  displayProbability: (selectionProbMap[opt.action] || 0) * 4
+                }));
+              } else if (showNormalizedProbability) {
+                // 모드 2: 총합 400 기준 정규화된 가중치 (사용 가능한 옵션만)
                 const availableOptions = allOptions.filter(opt => opt.isAvailable);
                 const totalProbability = availableOptions.reduce((sum, opt) => sum + opt.probability, 0);
                 
-                normalizedOptions = allOptions.map(opt => ({
+                displayOptions = allOptions.map(opt => ({
                   ...opt,
-                  displayProbability: opt.isAvailable ? (opt.probability / totalProbability) : 0
+                  displayProbability: opt.isAvailable && totalProbability > 0 
+                    ? (opt.probability / totalProbability) * 4 
+                    : 0
                 }));
               } else {
-                normalizedOptions = allOptions.map(opt => ({
+                // 모드 3: 기본 probability (4-combo에서의 가중치)
+                displayOptions = allOptions.map(opt => ({
                   ...opt,
                   displayProbability: opt.probability
                 }));
@@ -462,34 +500,34 @@ function ProcessingGemDisplay({
                 {
                   dealerA: {
                     title: getEffectName(processingGem, 'dealerA'),
-                    options: normalizedOptions.filter(opt => opt.action.startsWith('dealerA_'))
+                    options: displayOptions.filter(opt => opt.action.startsWith('dealerA_'))
                   },
                   dealerB: {
                     title: getEffectName(processingGem, 'dealerB'), 
-                    options: normalizedOptions.filter(opt => opt.action.startsWith('dealerB_'))
+                    options: displayOptions.filter(opt => opt.action.startsWith('dealerB_'))
                   },
                   supportA: {
                     title: getEffectName(processingGem, 'supportA'),
-                    options: normalizedOptions.filter(opt => opt.action.startsWith('supportA_'))
+                    options: displayOptions.filter(opt => opt.action.startsWith('supportA_'))
                   },
                   supportB: {
                     title: getEffectName(processingGem, 'supportB'), 
-                    options: normalizedOptions.filter(opt => opt.action.startsWith('supportB_'))
+                    options: displayOptions.filter(opt => opt.action.startsWith('supportB_'))
                   }
                 },
                 // 둘째 행: 기본 스탯들 + 가공 결과
                 {
                   willpower: {
                     title: '의지력 효율',
-                    options: normalizedOptions.filter(opt => opt.action.startsWith('willpower_'))
+                    options: displayOptions.filter(opt => opt.action.startsWith('willpower_'))
                   },
                   corePoint: {
                     title: `${processingGem.mainType === 'ORDER' ? '질서' : '혼돈'} 포인트`, 
-                    options: normalizedOptions.filter(opt => opt.action.startsWith('corePoint_'))
+                    options: displayOptions.filter(opt => opt.action.startsWith('corePoint_'))
                   },
                   etc: {
                     title: '기타',
-                    options: normalizedOptions.filter(opt => 
+                    options: displayOptions.filter(opt => 
                       opt.action.startsWith('cost_') || 
                       opt.action.startsWith('reroll_') || 
                       opt.action === 'maintain'

@@ -14,6 +14,7 @@ function ProcessingTab() {
   const [lastProcessingResult, setLastProcessingResult] = useState(null);
   const [totalGoldSpent, setTotalGoldSpent] = useState(0);
   const [individualProbabilityData, setIndividualProbabilityData] = useState(null);
+  const [showDisplayProbability, setShowDisplayProbability] = useState(false);
   const [showNormalizedProbability, setShowNormalizedProbability] = useState(false);
   
   // 이미지 인식 관련 상태
@@ -108,6 +109,8 @@ function ProcessingTab() {
           setTotalGoldSpent={setTotalGoldSpent}
           individualProbabilityData={individualProbabilityData}
           setIndividualProbabilityData={setIndividualProbabilityData}
+          showDisplayProbability={showDisplayProbability}
+          setShowDisplayProbability={setShowDisplayProbability}
           showNormalizedProbability={showNormalizedProbability}
           setShowNormalizedProbability={setShowNormalizedProbability}
         />

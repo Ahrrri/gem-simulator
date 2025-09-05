@@ -131,11 +131,27 @@ app.get('/api/gem-probabilities', (req, res) => {
             }
           }
           
-          // id 필드 제거하고 percentiles 추가
-          const { id, ...probabilities } = row;
-          res.json({
-            ...probabilities,
-            percentiles
+          // available_options 데이터도 가져오기
+          const optionsQuery = `
+            SELECT action, probability, description, selectionProbability
+            FROM available_options 
+            WHERE gem_state_id = ?
+            ORDER BY selectionProbability DESC
+          `;
+          
+          db.all(optionsQuery, [row.id], (err3, optionRows) => {
+            if (err3) {
+              res.status(500).json({ error: err3.message });
+            } else {
+              // id 필드 제거하고 percentiles, availableOptions 추가
+              const { id, ...probabilities } = row;
+              console.log(row);
+              res.json({
+                ...probabilities,
+                percentiles,
+                availableOptions: optionRows || []
+              });
+            }
           });
         }
       });

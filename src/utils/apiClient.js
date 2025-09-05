@@ -80,18 +80,27 @@ export async function getGemProbabilities(gemState) {
 export function formatProbabilities(probabilities) {
   if (!probabilities) return null;
 
-  return {
+  const result = {
     '5/5': { value: probabilities.prob_5_5, label: '5/5', percent: (probabilities.prob_5_5 * 100).toFixed(4) },
-    '5/4': { value: probabilities.prob_5_4, label: '5/4', percent: (probabilities.prob_5_4 * 100).toFixed(4) },
-    '4/5': { value: probabilities.prob_4_5, label: '4/5', percent: (probabilities.prob_4_5 * 100).toFixed(4) },
-    '5/3': { value: probabilities.prob_5_3, label: '5/3', percent: (probabilities.prob_5_3 * 100).toFixed(4) },
-    '4/4': { value: probabilities.prob_4_4, label: '4/4', percent: (probabilities.prob_4_4 * 100).toFixed(4) },
-    '3/5': { value: probabilities.prob_3_5, label: '3/5', percent: (probabilities.prob_3_5 * 100).toFixed(4) },
-    'sum8+': { value: probabilities.prob_sum8, label: 'Sum 8+', percent: (probabilities.prob_sum8 * 100).toFixed(4) },
-    'sum9+': { value: probabilities.prob_sum9, label: 'Sum 9+', percent: (probabilities.prob_sum9 * 100).toFixed(4) },
-    'relic+': { value: probabilities.prob_relic, label: 'Relic+', percent: (probabilities.prob_relic * 100).toFixed(4) },
-    'ancient+': { value: probabilities.prob_ancient, label: 'Ancient+', percent: (probabilities.prob_ancient * 100).toFixed(4) }
+    '5/4': { value: probabilities.prob_5_4, label: '5/4+', percent: (probabilities.prob_5_4 * 100).toFixed(4) },
+    '4/5': { value: probabilities.prob_4_5, label: '4/5+', percent: (probabilities.prob_4_5 * 100).toFixed(4) },
+    '5/3': { value: probabilities.prob_5_3, label: '5/3+', percent: (probabilities.prob_5_3 * 100).toFixed(4) },
+    '4/4': { value: probabilities.prob_4_4, label: '4/4+', percent: (probabilities.prob_4_4 * 100).toFixed(4) },
+    '3/5': { value: probabilities.prob_3_5, label: '3/5+', percent: (probabilities.prob_3_5 * 100).toFixed(4) },
+    'sum8+': { value: probabilities.prob_sum8, label: '합 8+', percent: (probabilities.prob_sum8 * 100).toFixed(4) },
+    'sum9+': { value: probabilities.prob_sum9, label: '합 9+', percent: (probabilities.prob_sum9 * 100).toFixed(4) },
+    'relic+': { value: probabilities.prob_relic, label: '유물+', percent: (probabilities.prob_relic * 100).toFixed(4) },
+    'ancient+': { value: probabilities.prob_ancient, label: '고대', percent: (probabilities.prob_ancient * 100).toFixed(4) },
+    'dealer_complete': { value: probabilities.prob_dealer_complete, label: '딜러 종결', percent: (probabilities.prob_dealer_complete * 100).toFixed(4) },
+    'support_complete': { value: probabilities.prob_support_complete, label: '서폿 종결', percent: (probabilities.prob_support_complete * 100).toFixed(4) }
   };
+
+  // percentile 정보 추가 (있는 경우)
+  if (probabilities.percentiles) {
+    result.percentiles = probabilities.percentiles;
+  }
+
+  return result;
 }
 
 export { ApiError };

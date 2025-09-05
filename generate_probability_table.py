@@ -1333,7 +1333,7 @@ if __name__ == "__main__":
             print(f"\n🎯 리롤 {max_reroll} 계산 시작...")
             
             # 확률 테이블 생성 (combo 메모이제이션만 공유)
-            table = generate_probability_table_with_shared_memo(None, shared_combo_memo, enable_visualization=enable_viz)
+            table = generate_probability_table_with_shared_memo(None, shared_combo_memo, enable_visualization=enable_viz) # type: ignore
             
             # JSON 파일로도 저장
             json_file = f"./probability_table_reroll_{max_reroll}.json"

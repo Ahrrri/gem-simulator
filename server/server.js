@@ -27,7 +27,7 @@ app.use(express.json());
 function initDatabase() {
   return new Promise((resolve, reject) => {
     // probability_table.db는 프로젝트 루트에 있다고 가정
-    const dbPath = join(__dirname, '../probability_table.db');
+    const dbPath = join(__dirname, '../probability_table_reroll_6.db');
     
     db = new sqlite3.Database(dbPath, (err) => {
       if (err) {
@@ -58,21 +58,13 @@ app.get('/health', (req, res) => {
 
 // 데이터베이스 통계
 app.get('/api/stats', (req, res) => {
-  const minAttempts = parseInt(req.query.minAttempts) || 3;
-  
   const query = `
     SELECT 
-      COUNT(*) as total_states,
-      AVG(prob_sum8) as avg_sum8,
-      AVG(prob_sum9) as avg_sum9,
-      AVG(prob_relic) as avg_relic,
-      AVG(prob_ancient) as avg_ancient,
-      MAX(prob_ancient) as max_ancient
-    FROM gem_states 
-    WHERE remainingAttempts >= ?
+      COUNT(*) as total_states
+    FROM gem_states
   `;
   
-  db.get(query, [minAttempts], (err, row) => {
+  db.get(query, [], (err, row) => {
     if (err) {
       res.status(500).json({ error: err.message });
     } else {
@@ -81,7 +73,7 @@ app.get('/api/stats', (req, res) => {
   });
 });
 
-// 젬 상태별 확률 조회
+// 젬 상태별 확률 조회 (percentile 포함)
 app.get('/api/gem-probabilities', (req, res) => {
   const {
     willpower, corePoint, dealerA, dealerB, supportA, supportB,
@@ -89,8 +81,9 @@ app.get('/api/gem-probabilities', (req, res) => {
   } = req.query;
   
   const query = `
-    SELECT prob_5_5, prob_5_4, prob_4_5, prob_5_3, prob_4_4, prob_3_5,
-           prob_sum8, prob_sum9, prob_relic, prob_ancient
+    SELECT id, prob_5_5, prob_5_4, prob_4_5, prob_5_3, prob_4_4, prob_3_5,
+           prob_sum8, prob_sum9, prob_relic, prob_ancient, 
+           prob_dealer_complete, prob_support_complete
     FROM gem_states 
     WHERE willpower = ? AND corePoint = ? 
       AND dealerA = ? AND dealerB = ? AND supportA = ? AND supportB = ?
@@ -99,48 +92,59 @@ app.get('/api/gem-probabilities', (req, res) => {
   `;
   
   const params = [
-    willpower, corePoint, dealerA, dealerB, supportA, supportB,
-    remainingAttempts, currentRerollAttempts, costModifier, isFirstProcessing
+    parseInt(willpower) || 0,
+    parseInt(corePoint) || 0,
+    parseInt(dealerA) || 0,
+    parseInt(dealerB) || 0,
+    parseInt(supportA) || 0,
+    parseInt(supportB) || 0,
+    parseInt(remainingAttempts) || 0,
+    parseInt(currentRerollAttempts) || 0,
+    parseInt(costModifier) || 0,
+    parseInt(isFirstProcessing) || 0
   ];
   
   db.get(query, params, (err, row) => {
     if (err) {
       res.status(500).json({ error: err.message });
+    } else if (row) {
+      // percentile 데이터도 가져오기
+      const percentileQuery = `
+        SELECT target, percentile, value
+        FROM gem_state_distributions
+        WHERE gem_state_id = ?
+        ORDER BY target, percentile
+      `;
+      
+      db.all(percentileQuery, [row.id], (err2, percentileRows) => {
+        if (err2) {
+          res.status(500).json({ error: err2.message });
+        } else {
+          // percentile 데이터를 구조화
+          const percentiles = {};
+          if (percentileRows) {
+            for (const pRow of percentileRows) {
+              if (!percentiles[pRow.target]) {
+                percentiles[pRow.target] = {};
+              }
+              percentiles[pRow.target][pRow.percentile] = pRow.value;
+            }
+          }
+          
+          // id 필드 제거하고 percentiles 추가
+          const { id, ...probabilities } = row;
+          res.json({
+            ...probabilities,
+            percentiles
+          });
+        }
+      });
     } else {
-      res.json(row || null);
+      res.json(null);
     }
   });
 });
 
-// 높은 확률 상태들 조회
-app.get('/api/high-probability', (req, res) => {
-  const target = req.query.target || 'prob_ancient';
-  const minProb = parseFloat(req.query.minProb) || 0.8;
-  const limit = parseInt(req.query.limit) || 10;
-  
-  // SQL injection 방지를 위한 컬럼명 검증
-  const allowedTargets = ['prob_5_5', 'prob_5_4', 'prob_4_5', 'prob_5_3', 'prob_4_4', 'prob_3_5', 'prob_sum8', 'prob_sum9', 'prob_relic', 'prob_ancient'];
-  if (!allowedTargets.includes(target)) {
-    return res.status(400).json({ error: 'Invalid target column' });
-  }
-  
-  const query = `
-    SELECT willpower, corePoint, dealerA, dealerB, supportA, supportB,
-           remainingAttempts, currentRerollAttempts, ${target}
-    FROM gem_states 
-    WHERE ${target} >= ?
-    ORDER BY ${target} DESC 
-    LIMIT ?
-  `;
-  
-  db.all(query, [minProb, limit], (err, rows) => {
-    if (err) {
-      res.status(500).json({ error: err.message });
-    } else {
-      res.json(rows);
-    }
-  });
-});
 
 // 커스텀 SQL 쿼리 (제한된 SELECT만 허용)
 app.post('/api/query', (req, res) => {
@@ -198,9 +202,8 @@ async function startServer() {
       console.log(`🚀 서버가 포트 ${PORT}에서 실행 중입니다 (모든 인터페이스)`);
       console.log(`📡 API 엔드포인트:`);
       console.log(`   GET  /health - 헬스 체크`);
-      console.log(`   GET  /api/stats - 데이터베이스 통계`);
+      console.log(`   GET  /api/stats - 데이터베이스 통계 (총 상태 수)`);
       console.log(`   GET  /api/gem-probabilities - 젬 상태별 확률`);
-      console.log(`   GET  /api/high-probability - 높은 확률 상태들`);
       console.log(`   POST /api/query - 커스텀 쿼리`);
       console.log(`   GET  /api/available-options/:id - 사용 가능한 옵션들`);
     });

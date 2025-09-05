@@ -30,8 +30,6 @@ dist-ssr
 
 *progress_frames
 gem_calculation_progress*.mp4
-probability_table.db
-probability_table.json
-probability_table.db-shm
-probability_table.db-wal
+probability_*.db
+probability_*.json
 __pycache__/generate_probability_table.cpython-313.pyc

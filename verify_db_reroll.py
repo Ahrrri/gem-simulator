@@ -14,7 +14,7 @@ def get_gem_probability_from_db(db_path, gem_state, target):
     cursor = conn.cursor()
     
     cursor.execute("""
-        SELECT prob_sum8, prob_sum9, prob_relic, prob_ancient, prob_dealer_active, prob_support_active
+        SELECT prob_sum8, prob_sum9, prob_relic, prob_ancient, prob_dealer_complete, prob_support_complete
         FROM gem_states 
         WHERE willpower=? AND corePoint=? AND dealerA=? AND dealerB=? AND supportA=? AND supportB=? 
               AND remainingAttempts=? AND currentRerollAttempts=? AND costModifier=? AND isFirstProcessing=?
@@ -121,13 +121,13 @@ def main():
     # 검증할 젬 상태 (로그에서 가져온 상태)
     test_gem = GemState(
         willpower=1,
-        corePoint=2, 
+        corePoint=3, 
         dealerA=1,
         dealerB=0,
         supportA=1,
         supportB=0,
-        remainingAttempts=8,
-        currentRerollAttempts=2,
+        remainingAttempts=6,
+        currentRerollAttempts=1,
         costModifier=0,
         isFirstProcessing=False
     )

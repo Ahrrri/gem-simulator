@@ -274,7 +274,9 @@ function ProcessingGemDisplay({
       'sum8+': '합 8 이상',
       'sum9+': '합 9 이상',
       'relic+': '유물 이상',
-      'ancient+': '고대'
+      'ancient+': '고대',
+      'dealer_complete': '딜러 종결',
+      'support_complete': '서폿 종결'
     };
     return targetLabels[target] || target;
   };
@@ -984,12 +986,14 @@ function ProcessingGemDisplay({
               </thead>
               <tbody>
                 {/* 목표별 확률 행들 */}
-                {['5/5', '5/4', '4/5', '5/3', '4/4', '3/5', 'sum8+', 'sum9+', 'relic+', 'ancient+'].map((target) => {
+                {['5/5', '5/4', '4/5', '5/3', '4/4', '3/5', 'sum8+', 'sum9+', 'relic+', 'ancient+', 'dealer_complete', 'support_complete'].map((target) => {
                   // 현재 젬 상태 확률
                   const currentProb = currentProbabilities?.[target]?.percent || '0.0';
                   
                   // 현재 옵션으로 가공 확률 (4개 옵션의 평균)
                   let optionProb = '0.0';
+                  let percentileText = '';
+                  
                   if (optionProbabilities && optionProbabilities.length > 0) {
                     const validProbs = optionProbabilities
                       .map(opt => opt.resultProbabilities ? opt.resultProbabilities?.[target]?.percent || '0.0' : '0.0')
@@ -999,6 +1003,23 @@ function ProcessingGemDisplay({
                     if (validProbs.length > 0) {
                       const avgProb = validProbs.reduce((sum, p) => sum + p, 0) / validProbs.length;
                       optionProb = avgProb.toFixed(4);
+                      
+                      // percentile 정보 찾기
+                      if (currentProbabilities?.percentiles?.[target]) {
+                        const currentProbDecimal = avgProb / 100;
+                        const percentiles = currentProbabilities.percentiles[target];
+                        
+                        // 현재 확률이 어느 percentile에 해당하는지 찾기
+                        let foundPercentile = 100;
+                        for (let p = 90; p >= 10; p -= 10) {
+                          if (percentiles[p] && currentProbDecimal >= percentiles[p]) {
+                            foundPercentile = p;
+                          } else {
+                            break;
+                          }
+                        }
+                        percentileText = ` (상위 ${foundPercentile}%)`;
+                      }
                     }
                   }
                   
@@ -1011,7 +1032,7 @@ function ProcessingGemDisplay({
                   // 최고 확률 찾기 (하이라이트용)
                   const probs = [parseFloat(optionProb), parseFloat(rerollProb)];
                   const maxProb = Math.max(...probs);
-                  const isGoodTarget = ['sum8+', 'sum9+', 'relic+', 'ancient+'].includes(target);
+                  const isGoodTarget = [].includes(target);
                   
                   return (
                     <tr key={target} className={isGoodTarget ? 'good-target' : ''}>
@@ -1029,7 +1050,10 @@ function ProcessingGemDisplay({
                               
                               {/* 호버 툴팁 - 각 옵션별 확률 표시 */}
                               <div className="prob-tooltip">
-                                <div className="tooltip-title">각 옵션별 {currentProbabilities?.[target]?.label || target} 확률</div>
+                                <div className="tooltip-title">
+                                  각 옵션별 {currentProbabilities?.[target]?.label || target} 확률
+                                  {percentileText && <span style={{ color: '#4CAF50', marginLeft: '8px' }}>{percentileText}</span>}
+                                </div>
                                 {optionProbabilities.map((option, idx) => {
                                   const optionTargetProb = option.resultProbabilities ? 
                                     option.resultProbabilities?.[target]?.percent || '0.0' : '0.0';

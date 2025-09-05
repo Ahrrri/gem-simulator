@@ -25,9 +25,18 @@ const __dirname = path.dirname(__filename);
 // SQLite 데이터베이스 연결 및 캐시
 let db = null;
 const probabilityCache = new Map(); // 확률 캐시
+let MAX_REROLL = 5; // 기본값
 
 try {
-  const dbPath = path.join(__dirname, '../../probability_table_reroll_6.db');
+  const dbPath = path.join(__dirname, '../../probability_table_reroll_5.db');
+  
+  // 파일명에서 리롤 횟수 추출
+  const rerollMatch = dbPath.match(/reroll_(\d+)\.db/);
+  if (rerollMatch) {
+    MAX_REROLL = parseInt(rerollMatch[1]);
+    console.log(`📊 DB에서 추출한 MAX_REROLL: ${MAX_REROLL}`);
+  }
+  
   db = new sqlite3.Database(dbPath, sqlite3.OPEN_READONLY);
   console.log('✅ SQLite 데이터베이스 연결 완료');
 } catch (error) {
@@ -35,6 +44,13 @@ try {
   console.log('💡 먼저 Python 스크립트로 확률 테이블을 생성해주세요: python generate_probability_table.py');
   process.exit(1);
 }
+
+// 젬 등급별 구매 비용 설정
+export const GEM_PURCHASE_COSTS = {
+  uncommon: 1000,  // 언커먼 젬 구매 비용
+  rare: 2500,      // 레어 젬 구매 비용  
+  heroic: 5000     // 히로익 젬 구매 비용
+};
 
 // 목표 정의 (기존과 동일)
 export const GOALS = {
@@ -141,10 +157,8 @@ function getAvailableOptions(gem) {
  * 젬 상태를 키 문자열로 변환 (메모이제이션용)
  */
 const stateToKey = (gem) => {
-  const MAX_REROLL_FOR_MEMOIZATION = 4; // Python과 동일
-  
   // 리롤 횟수는 상한까지만 (메모이제이션 효율성)
-  const cappedReroll = Math.min(MAX_REROLL_FOR_MEMOIZATION, gem.currentRerollAttempts || 0);
+  const cappedReroll = Math.min(MAX_REROLL, gem.currentRerollAttempts || 0);
   const firstProcessing = (gem.processingCount || 0) === 0 ? 1 : 0;
   
   return `${gem.willpower || 1},${gem.corePoint || 1},${gem.dealerA || 0},${gem.dealerB || 0},${gem.supportA || 0},${gem.supportB || 0},${gem.remainingAttempts || 0},${cappedReroll},${gem.costModifier || 0},${firstProcessing}`;
@@ -195,7 +209,7 @@ const getLocalProbability = (gem, goalKey) => {
     }
     
     // gem_states 테이블에서 조회 (gem_state 키가 아닌 개별 컬럼으로 매칭)
-    const cappedReroll = Math.min(4, gem.currentRerollAttempts || 0);
+    const cappedReroll = Math.min(MAX_REROLL, gem.currentRerollAttempts || 0);
     const firstProcessing = (gem.processingCount || 0) === 0 ? 1 : 0;
     
     db.get(
@@ -276,6 +290,82 @@ const loadLocalOptionProbabilities = async (gem, options) => {
 };
 
 /**
+ * CDF 테이블에서 percentile 정보 조회
+ */
+const queryPercentileInfo = async (gem, goalKey, currentProbPercent) => {
+  return new Promise((resolve, reject) => {
+    if (!db) {
+      resolve(null);
+      return;
+    }
+    
+    // 젬 상태로 gem_state_id 찾기
+    const cappedReroll = Math.min(MAX_REROLL, gem.currentRerollAttempts || 0);
+    const firstProcessing = (gem.processingCount || 0) === 0 ? 1 : 0;
+    
+    db.get(
+      `SELECT id FROM gem_states 
+       WHERE willpower = ? AND corePoint = ? AND dealerA = ? AND dealerB = ? 
+       AND supportA = ? AND supportB = ? AND remainingAttempts = ? 
+       AND currentRerollAttempts = ? AND costModifier = ? AND isFirstProcessing = ?`,
+      [
+        gem.willpower || 1, gem.corePoint || 1, 
+        gem.dealerA || 0, gem.dealerB || 0, 
+        gem.supportA || 0, gem.supportB || 0, 
+        gem.remainingAttempts || 0, cappedReroll, 
+        gem.costModifier || 0, firstProcessing
+      ],
+      (err, row) => {
+        if (err || !row) {
+          reject(new Error('젬 상태를 찾을 수 없음'));
+          return;
+        }
+        
+        const gemStateId = row.id;
+        
+        // CDF 테이블에서 percentile 정보 조회 (goalKey를 직접 사용)
+        const target = goalKey;
+        
+        db.all(
+          `SELECT percentile, value FROM gem_state_distributions 
+           WHERE gem_state_id = ? AND target = ? 
+           ORDER BY percentile ASC`,
+          [gemStateId, target],
+          (err, rows) => {
+            if (err) {
+              reject(err);
+              return;
+            }
+            
+            if (!rows || rows.length === 0) {
+              resolve({ percentile: 'N/A', description: '데이터 없음' });
+              return;
+            }
+            
+            // 현재 확률이 어느 percentile에 해당하는지 찾기
+            const currentProbDecimal = currentProbPercent / 100;
+            let percentile = 100;
+            
+            for (const row of rows) {
+              if (currentProbDecimal >= row.value) {
+                percentile = row.percentile;
+                break;
+              }
+            }
+            
+            resolve({
+              percentile: percentile.toString(),
+              description: `상위 ${percentile}% combo`,
+              allPercentiles: rows
+            });
+          }
+        );
+      }
+    );
+  });
+};
+
+/**
  * 로컬 버전의 loadRerollProbabilities
  */
 const loadLocalRerollProbabilities = async (gem) => {
@@ -344,21 +434,16 @@ const checkGoalAchieved = (gem, goalKey) => {
 };
 
 /**
- * 후회 최소화 전략
+ * 통합 전략 (확률 기반 + percentile 분석)
  */
-export const minimizeRegretStrategy = {
-  name: '후회 최소화 전략',
-  description: '리롤 후 모든 가능한 4combo 조합을 계산하여 후회 확률 최소화',
+export const smartRerollStrategy = {
+  name: '스마트 리롤 전략',
+  description: 'DB 기반 확률 비교 및 percentile 분석으로 최적 리롤 결정',
   
   async shouldReroll(currentGem, currentOptions, goalKey, isFirstRun) {
     // 목표 달성 시 중단
     if (checkGoalAchieved(currentGem, goalKey)) {
       return { reroll: false, reason: '목표 달성' };
-    }
-    
-    // 리롤 횟수 없으면 중단
-    if (currentGem.currentRerollAttempts <= 0) {
-      return { reroll: false, reason: '리롤 횟수 소진' };
     }
     
     try {
@@ -382,18 +467,27 @@ export const minimizeRegretStrategy = {
         : 0;
       const maxCurrentProb = Math.max(...currentOptionProbs, 0);
       
-      // 2. 리롤 후 사용 가능한 모든 옵션들 조회
-      const rerollGem = {
-        ...currentGem,
-        currentRerollAttempts: Math.max(0, (currentGem.currentRerollAttempts || 0) - 1)
-      };
+      // 2. 리롤 후 확률 (DB에서 바로 조회)
+      const rerollProbResult = await loadLocalRerollProbabilities(currentGem);
+      const expectedAvgRerollProb = parseFloat(rerollProbResult?.[goalKey]?.percent || 0);
       
-      const availableOptions = getAvailableOptions(rerollGem);
-      if (availableOptions.length < 4) {
-        return { reroll: false, reason: '리롤 후 옵션 부족' };
-      }
+      // 첫 번째 실행일 때만 상세 4combo 계산 (디버깅/검증용)
+      let calculatedAvgRerollProb = expectedAvgRerollProb;
+      let analysis = null;
       
-      // 3. 모든 4combo 조합 생성 및 확률 계산
+      if (isFirstRun) {
+        // 디버깅용 상세 계산
+        const rerollGem = {
+          ...currentGem,
+          currentRerollAttempts: Math.max(0, (currentGem.currentRerollAttempts || 0) - 1)
+        };
+        
+        const availableOptions = getAvailableOptions(rerollGem);
+        if (availableOptions.length < 4) {
+          return { reroll: false, reason: '리롤 후 옵션 부족' };
+        }
+        
+        // 3. 모든 4combo 조합 생성 및 확률 계산 (검증용)
       const allWeights = availableOptions.map(opt => opt.probability);
       
       let betterCombos = 0;
@@ -431,8 +525,24 @@ export const minimizeRegretStrategy = {
         const avgComboProb = comboProbs.reduce((sum, p) => sum + p, 0) / comboProbs.length;
         const maxComboProb = Math.max(...comboProbs);
         
-        // 가중 평균에 기여
-        const contribution = avgComboProb * comboWeight;
+        // 리롤 가능 여부 확인하여 더 나은 선택 결정
+        let finalComboProb = avgComboProb;
+        
+        // 현재 rerollGem 상태에서 리롤이 가능한지 확인
+        if (rerollGem.currentRerollAttempts > 0 && rerollGem.remainingAttempts > 0) {
+          // 리롤 후의 확률 (DB에서 조회)
+          const rerollAfterGem = {
+            ...rerollGem,
+            currentRerollAttempts: Math.max(0, rerollGem.currentRerollAttempts - 1)
+          };
+          const rerollProb = await getLocalProbability(rerollAfterGem, goalKey);
+          
+          // avgComboProb와 리롤 후 확률 중 더 높은 값 사용
+          finalComboProb = Math.max(avgComboProb, rerollProb);
+        }
+        
+        // 가중 평균에 기여 (리롤 고려한 최종 확률 사용)
+        const contribution = finalComboProb * comboWeight;
         weightedProbSum += contribution;
         totalComboWeight += comboWeight;
         
@@ -443,27 +553,23 @@ export const minimizeRegretStrategy = {
           weightValues.push(comboWeight);
         }
         
-        // 현재 평균 확률과 비교
-        if (avgComboProb > avgCurrentProb) {
+        // 현재 평균 확률과 비교 (리롤 고려한 최종 확률로 비교)
+        if (finalComboProb > avgCurrentProb) {
           betterCombos++;
-        } else if (avgComboProb < avgCurrentProb) {
+        } else if (finalComboProb < avgCurrentProb) {
           worseCombos++;
         }
         
         totalCombos++;
       }
       
-      const calculatedAvgRerollProb = totalComboWeight > 0 ? weightedProbSum / totalComboWeight : 0;
-      
-      // 4. 검증: 리롤 확률과 비교
-      const rerollProbResult = await loadLocalRerollProbabilities(currentGem);
-      const expectedAvgRerollProb = parseFloat(rerollProbResult?.[goalKey]?.percent || 0);
-      
-      const betterRate = totalCombos > 0 ? (betterCombos / totalCombos) * 100 : 0;
-      const worseRate = totalCombos > 0 ? (worseCombos / totalCombos) * 100 : 0;
-      
-      // 디버깅: 첫 번째 combination의 세부 정보 출력 (차이점 파악용)
-      if (isFirstRun && totalCombos > 0) {
+        calculatedAvgRerollProb = totalComboWeight > 0 ? weightedProbSum / totalComboWeight : 0;
+        
+        const betterRate = totalCombos > 0 ? (betterCombos / totalCombos) * 100 : 0;
+        const worseRate = totalCombos > 0 ? (worseCombos / totalCombos) * 100 : 0;
+        
+        // 디버깅: 첫 번째 combination의 세부 정보 출력 (차이점 파악용)
+        if (totalCombos > 0) {
         console.log('\n=== 첫 번째 combination 디버깅 ===');
         const firstComboIndices = Array.from(combinations(Array.from({length: availableOptions.length}, (_, i) => i), 4))[0];
         console.log('첫 번째 combo indices:', firstComboIndices);
@@ -496,17 +602,12 @@ export const minimizeRegretStrategy = {
         console.log('===============================\n');
       }
       
-      // 가중치 분포 분석
-      const weightOrderMagnitude = maxWeight > 0 && minWeight < Infinity 
-        ? Math.log10(maxWeight / minWeight) 
-        : 0;
-      
-      return {
-        reroll: betterRate > worseRate && calculatedAvgRerollProb > avgCurrentProb,
-        reason: `후회 최소화: 개선확률 ${betterRate.toFixed(4)}% vs 악화확률 ${worseRate.toFixed(4)}%`,
-        beforeProb: avgCurrentProb,
-        afterProb: calculatedAvgRerollProb,
-        analysis: {
+        // 가중치 분포 분석
+        const weightOrderMagnitude = maxWeight > 0 && minWeight < Infinity 
+          ? Math.log10(maxWeight / minWeight) 
+          : 0;
+        
+        analysis = {
           numofAvailableOptions: availableOptions.length,
           currentMax: maxCurrentProb,
           currentAvg: avgCurrentProb,
@@ -525,7 +626,52 @@ export const minimizeRegretStrategy = {
             totalWeight: totalComboWeight,
             avgWeight: weightValues.length > 0 ? totalComboWeight / weightValues.length : 0
           }
+        };
+      }
+      
+      // Percentile 정보 조회 (현재 옵션들이 상위 몇 퍼센트인지)
+      let percentileInfo = null;
+      try {
+        const percentileResult = await queryPercentileInfo(currentGem, goalKey, avgCurrentProb);
+        percentileInfo = percentileResult;
+      } catch (err) {
+        console.warn('Percentile 조회 실패:', err.message);
+      }
+      
+      // 리롤 여부 결정 (DB 값 기준)
+      const wouldWantToReroll = expectedAvgRerollProb > avgCurrentProb;
+      
+      // 리롤 횟수 체크
+      const canActuallyReroll = currentGem.currentRerollAttempts > 0;
+      
+      let reason;
+      if (wouldWantToReroll && canActuallyReroll) {
+        const improvement = ((expectedAvgRerollProb - avgCurrentProb) / avgCurrentProb * 100);
+        reason = `확률 개선: ${avgCurrentProb.toFixed(4)}% → ${expectedAvgRerollProb.toFixed(4)}% (+${improvement.toFixed(1)}%)`;
+        if (percentileInfo) {
+          reason += `, 현재 combo는 상위 ${percentileInfo.percentile}%`;
         }
+      } else if (wouldWantToReroll && !canActuallyReroll) {
+        reason = `리롤하고 싶지만 횟수 없음: 현재 ${avgCurrentProb.toFixed(4)}% vs 리롤 ${expectedAvgRerollProb.toFixed(4)}%`;
+        if (percentileInfo) {
+          reason += `, 현재 combo는 상위 ${percentileInfo.percentile}%`;
+        }
+      } else {
+        reason = `확률 개선 없음: 현재 ${avgCurrentProb.toFixed(4)}% vs 리롤 ${expectedAvgRerollProb.toFixed(4)}%`;
+        if (percentileInfo) {
+          reason += `, 현재 combo는 상위 ${percentileInfo.percentile}%`;
+        }
+      }
+      
+      return {
+        reroll: wouldWantToReroll && canActuallyReroll,
+        wouldWantToReroll,  // 통계용
+        canActuallyReroll,  // 통계용
+        reason,
+        beforeProb: avgCurrentProb,
+        afterProb: expectedAvgRerollProb,
+        percentileInfo,
+        analysis
       };
       
     } catch (error) {
@@ -535,63 +681,6 @@ export const minimizeRegretStrategy = {
   }
 };
 
-/**
- * 확률 기반 전략 (올바른 버전)
- */
-export const probabilityStrategy = {
-  name: '확률 기반 전략 (로컬)',
-  description: '현재 옵션 세트 vs 리롤 후 확률을 비교하여 리롤 여부 결정',
-  
-  async shouldReroll(currentGem, currentOptions, goalKey, isFirstRun) {
-    // 목표 달성 시 중단
-    if (checkGoalAchieved(currentGem, goalKey)) {
-      return { reroll: false, reason: '목표 달성' };
-    }
-    
-    try {
-      // 1. 현재 옵션 세트의 확률 계산 (단순 평균 - 각 옵션 25% 확률)
-      const currentOptionsWithProb = await loadLocalOptionProbabilities(currentGem, currentOptions);
-      let currentProbSum = 0;
-      let validOptionCount = 0;
-      
-      if (currentOptionsWithProb && currentOptionsWithProb.length > 0) {
-        for (const option of currentOptionsWithProb) {
-          if (option.resultProbabilities && option.resultProbabilities[goalKey]) {
-            const prob = parseFloat(option.resultProbabilities[goalKey].percent || 0);
-            currentProbSum += prob;
-            validOptionCount++;
-          }
-        }
-      }
-      const avgCurrentProb = validOptionCount > 0 ? currentProbSum / validOptionCount : 0;
-      
-      // 2. 리롤 후의 확률 계산  
-      const rerollProbResult = await loadLocalRerollProbabilities(currentGem);
-      const avgRerollProb = parseFloat(rerollProbResult?.[goalKey]?.percent || 0);
-      
-      // 3. 확률 비교하여 리롤 여부 결정
-      if (avgRerollProb > avgCurrentProb) {
-        return { 
-          reroll: true, 
-          reason: `확률 개선: ${avgCurrentProb.toFixed(4)}% → ${avgRerollProb.toFixed(4)}%`,
-          beforeProb: avgCurrentProb,
-          afterProb: avgRerollProb
-        };
-      }
-      
-      return { 
-        reroll: false, 
-        reason: `확률 개선 없음 (현재: ${avgCurrentProb.toFixed(4)}% vs 리롤: ${avgRerollProb.toFixed(4)}%)`,
-        beforeProb: avgCurrentProb,
-        afterProb: avgRerollProb
-      };
-      
-    } catch (error) {
-      console.error('확률 계산 오류:', error);
-      return { reroll: false, reason: '확률 계산 실패' };
-    }
-  }
-};
 
 /**
  * 단일 목표 시뮬레이션 (SQLite 비동기 버전)
@@ -692,7 +781,7 @@ export const runSimulation = async (mainType, subType, grade, goalKey, options =
           }
         }
         
-        const decision = await minimizeRegretStrategy.shouldReroll(
+        const decision = await smartRerollStrategy.shouldReroll(
           currentGem, 
           currentGem.autoOptionSet,
           goalKey,
@@ -713,10 +802,16 @@ export const runSimulation = async (mainType, subType, grade, goalKey, options =
         }
         
         if (!decision.reroll) {
-          // 리롤 안 함 - 현재 옵션이 만족스러움
+          // 리롤 안 함 또는 못 함
+          if (decision.wouldWantToReroll && !decision.canActuallyReroll) {
+            // 리롤하고 싶었지만 횟수 없음
+            rerollStats.wantedButNoAttempts++;
+            if (isFirstRun) console.log(`  ⏰ 리롤하고 싶지만 횟수 없음`);
+          }
           break;
         }
         
+        // 여기까지 왔다면 실제로 리롤 실행
         if (currentGem.currentRerollAttempts > 0) {
           rerollCount++;
           // 리롤 전 확률 저장 (decision에 있음)
@@ -764,9 +859,8 @@ export const runSimulation = async (mainType, subType, grade, goalKey, options =
             break;
           }
         } else {
-          // 리롤하고 싶었지만 횟수 없음
-          rerollStats.wantedButNoAttempts++;
-          if (isFirstRun) console.log(`  ⏰ 리롤하고 싶지만 횟수 없음`);
+          // 리롤 실패 시 루프 탈출
+          if (isFirstRun) console.log(`  ❌ 리롤 실패`);
           break;
         }
       }
@@ -906,6 +1000,131 @@ export const runAllGoalsSimulation = async (mainType, subType, grade, options = 
   return { results };
 };
 
+/**
+ * 현재 젬 상태에서 목표 달성까지의 기대 비용 계산
+ */
+export const calculateExpectedCostToContinue = async (currentGem, goalKey, options = {}) => {
+  const { simulationRuns = 1000 } = options;
+  
+  // 현재 상태에서 이미 목표 달성했는지 확인
+  const currentProb = await getLocalProbability(currentGem, goalKey);
+  if (currentProb >= 99.9999) {
+    return { expectedCost: 0, alreadyAchieved: true, currentProb };
+  }
+  
+  // 현재 상태에서 목표 달성까지 시뮬레이션 실행
+  const results = [];
+  const processingCostPerAttempt = 900 * (1 + (currentGem.costModifier || 0) / 100);
+  
+  for (let i = 0; i < simulationRuns; i++) {
+    let testGem = { ...currentGem };
+    let cost = 0;
+    let attempts = 0;
+    let achieved = false;
+    
+    // 최대 시도 횟수 제한 (무한 루프 방지)
+    const maxAttempts = 100;
+    
+    while (attempts < maxAttempts && !achieved) {
+      // 현재 확률 체크
+      const prob = await getLocalProbability(testGem, goalKey);
+      if (prob >= 99.9999) {
+        achieved = true;
+        break;
+      }
+      
+      // 옵션 생성 및 선택
+      const options = testGem.autoOptionSet || [];
+      if (options.length === 0) {
+        break; // 더 이상 가공할 수 없음
+      }
+      
+      // 랜덤 옵션 선택
+      const randomIndex = Math.floor(Math.random() * options.length);
+      const selectedAction = options[randomIndex].action;
+      
+      // 비용 추가 및 가공 실행
+      cost += processingCostPerAttempt;
+      testGem = executeGemProcessing(testGem, selectedAction);
+      attempts++;
+    }
+    
+    results.push({ cost, attempts, achieved });
+  }
+  
+  // 성공한 시뮬레이션들의 평균 비용 계산
+  const successfulRuns = results.filter(r => r.achieved);
+  const expectedCost = successfulRuns.length > 0
+    ? successfulRuns.reduce((sum, r) => sum + r.cost, 0) / successfulRuns.length
+    : Infinity; // 목표 달성 불가능한 경우
+  
+  return {
+    expectedCost,
+    successRate: (successfulRuns.length / simulationRuns) * 100,
+    avgAttempts: successfulRuns.length > 0
+      ? successfulRuns.reduce((sum, r) => sum + r.attempts, 0) / successfulRuns.length
+      : 0,
+    currentProb,
+    alreadyAchieved: false
+  };
+};
+
+/**
+ * 새 젬으로 시작할 때의 기대 비용 계산
+ */
+export const calculateExpectedCostForNewGem = async (mainType, subType, grade, goalKey, options = {}) => {
+  // 새 젬 구매 비용
+  const purchaseCost = GEM_PURCHASE_COSTS[grade.toLowerCase()] || 0;
+  
+  // 새 젬으로 목표 달성까지의 기대 비용 계산
+  const processingResult = await runSimulation(mainType, subType, grade, goalKey, options);
+  
+  return {
+    purchaseCost,
+    expectedProcessingCost: processingResult.avgSuccessCost,
+    totalExpectedCost: purchaseCost + processingResult.avgSuccessCost,
+    successRate: processingResult.successRate,
+    processingResult
+  };
+};
+
+/**
+ * 비용 최적화 기반 의사결정: 계속할지 포기할지 결정
+ */
+export const makeCostOptimizedDecision = async (currentGem, goalKey, mainType, subType, grade, options = {}) => {
+  console.log('\n🧮 비용 최적화 분석 시작...');
+  
+  // 현재 상태에서 계속할 때의 기대 비용
+  const continueResult = await calculateExpectedCostToContinue(currentGem, goalKey, options);
+  
+  if (continueResult.alreadyAchieved) {
+    return {
+      decision: 'achieved',
+      reason: '목표 이미 달성',
+      continueResult
+    };
+  }
+  
+  // 새 젬으로 시작할 때의 기대 비용
+  const newGemResult = await calculateExpectedCostForNewGem(mainType, subType, grade, goalKey, options);
+  
+  console.log(`📊 현재 젬 계속: ${Math.round(continueResult.expectedCost)}골드 (성공률 ${continueResult.successRate.toFixed(1)}%)`);
+  console.log(`🆕 새 젬 시작: ${Math.round(newGemResult.totalExpectedCost)}골드 (성공률 ${newGemResult.successRate.toFixed(1)}%)`);
+  
+  // 비용 비교하여 결정
+  const shouldContinue = continueResult.expectedCost < newGemResult.totalExpectedCost;
+  
+  return {
+    decision: shouldContinue ? 'continue' : 'abandon',
+    reason: shouldContinue 
+      ? `계속하는 것이 ${Math.round(newGemResult.totalExpectedCost - continueResult.expectedCost)}골드 더 경제적`
+      : `새 젬이 ${Math.round(continueResult.expectedCost - newGemResult.totalExpectedCost)}골드 더 경제적`,
+    continueResult,
+    newGemResult,
+    costDifference: Math.abs(continueResult.expectedCost - newGemResult.totalExpectedCost)
+  };
+};
+
 // CLI 실행을 위한 메인 함수
 const main = async () => {
   console.log('🎮 로컬 젬 가공 시뮬레이터');
@@ -915,6 +1134,7 @@ const main = async () => {
   const args = process.argv.slice(2);
   let goalKey = 'sum9+';  // 기본값
   let simulationRuns = 1000;  // 기본값
+  let costDemo = false;
   
   // 인자 처리
   for (let i = 0; i < args.length; i++) {
@@ -925,12 +1145,15 @@ const main = async () => {
     } else if (arg === '--runs' || arg === '-r') {
       simulationRuns = parseInt(args[i + 1]);
       i++; // 다음 인자 스킵
+    } else if (arg === '--cost-demo') {
+      costDemo = true;
     } else if (arg === '--help' || arg === '-h') {
       console.log('사용법: node src/simulators/local-simulator.js [옵션]');
       console.log('');
       console.log('옵션:');
       console.log('  -g, --goal <목표>     목표 설정 (기본: sum9+)');
       console.log('  -r, --runs <횟수>     시뮬레이션 횟수 (기본: 1000)');
+      console.log('  --cost-demo          비용 최적화 데모 실행');
       console.log('  -h, --help           도움말 표시');
       console.log('');
       console.log('사용 가능한 목표:');
@@ -958,6 +1181,37 @@ const main = async () => {
   }
   
   try {
+    if (costDemo) {
+      // 비용 최적화 데모 실행
+      console.log('\n🧮 비용 최적화 데모 시작');
+      console.log('=====================================');
+      
+      // 다양한 상태의 젬으로 비용 분석 테스트
+      const testCases = [
+        { willpower: 1, corePoint: 1, dealerA: 0, dealerB: 0, supportA: 0, supportB: 0 }, // 초기 상태
+        { willpower: 3, corePoint: 2, dealerA: 2, dealerB: 1, supportA: 1, supportB: 0 }, // 중간 상태
+        { willpower: 4, corePoint: 4, dealerA: 3, dealerB: 3, supportA: 2, supportB: 2 }, // 거의 완성
+      ];
+      
+      for (let i = 0; i < testCases.length; i++) {
+        // 새 젬 생성 후 테스트 상태로 수정
+        const testGem = createProcessingGem('ORDER', 'STABLE', 'HEROIC');
+        Object.assign(testGem, testCases[i]);
+        console.log(`\n📋 테스트 케이스 ${i + 1}: 의지력${testGem.willpower} 코어${testGem.corePoint} 딜러${testGem.dealerA}/${testGem.dealerB} 서폿${testGem.supportA}/${testGem.supportB}`);
+        
+        const decision = await makeCostOptimizedDecision(testGem, goalKey, 'ORDER', 'STABLE', 'HEROIC', { simulationRuns: 200 });
+        
+        console.log(`💡 결정: ${decision.decision === 'continue' ? '계속 가공' : decision.decision === 'abandon' ? '포기하고 새 젬' : '이미 달성'}`);
+        console.log(`📝 이유: ${decision.reason}`);
+        if (decision.costDifference !== undefined) {
+          console.log(`💰 비용 차이: ${Math.round(decision.costDifference)}골드`);
+        }
+      }
+      
+      console.log('\n✨ 비용 최적화 데모 완료!');
+      return;
+    }
+    
     // 목표 시뮬레이션
     const result = await runSimulation('ORDER', 'STABLE', 'HEROIC', goalKey, { simulationRuns });
     

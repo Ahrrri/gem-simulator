@@ -275,6 +275,9 @@ export const getProcessingAttempts = (grade) => {
   }
 };
 
+// 젬 가공 기본 비용 (골드)
+export const PROCESSING_COST = 900;
+
 export default {
   GEM_TYPES,
   GEM_EFFECTS,
@@ -288,6 +291,7 @@ export default {
   LEGENDARY_POINT_DISTRIBUTION,
   RELIC_POINT_DISTRIBUTION,
   ANCIENT_POINT_DISTRIBUTION,
+  PROCESSING_COST,
   getRerollAttempts,
   getProcessingAttempts
 };

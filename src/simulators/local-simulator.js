@@ -25,10 +25,10 @@ const __dirname = path.dirname(__filename);
 // SQLite 데이터베이스 연결 및 캐시
 let db = null;
 const probabilityCache = new Map(); // 확률 캐시
-let MAX_REROLL = 5; // 기본값
+let MAX_REROLL = 2; // 기본값
 
 try {
-  const dbPath = path.join(__dirname, '../../probability_table_reroll_5.db');
+  const dbPath = path.join(__dirname, '../../probability_table_reroll_2.db');
   
   // 파일명에서 리롤 횟수 추출
   const rerollMatch = dbPath.match(/reroll_(\d+)\.db/);
@@ -184,6 +184,58 @@ const goalKeyToColumn = (goalKey) => {
 };
 
 /**
+ * SQLite 데이터베이스에서 expected cost 조회
+ */
+const getLocalExpectedCost = (gem, goalKey) => {
+  return new Promise((resolve, reject) => {
+    if (!db) {
+      resolve(Infinity);
+      return;
+    }
+    
+    // expected_costs 테이블에서 조회
+    const cappedReroll = Math.min(MAX_REROLL, gem.currentRerollAttempts || 0);
+    const firstProcessing = (gem.processingCount || 0) === 0 ? 1 : 0;
+    
+    db.get(
+      `SELECT expected_cost_to_goal FROM expected_costs 
+       WHERE gem_state_id = (
+         SELECT id FROM goal_probabilities 
+         WHERE willpower = ? AND corePoint = ? AND dealerA = ? AND dealerB = ? 
+         AND supportA = ? AND supportB = ? AND remainingAttempts = ? 
+         AND currentRerollAttempts = ? AND costModifier = ? AND isFirstProcessing = ?
+       ) AND target = ?`,
+      [
+        gem.willpower || 1, 
+        gem.corePoint || 1, 
+        gem.dealerA || 0, 
+        gem.dealerB || 0, 
+        gem.supportA || 0, 
+        gem.supportB || 0, 
+        gem.remainingAttempts || 0, 
+        cappedReroll, 
+        gem.costModifier || 0, 
+        firstProcessing,
+        goalKey
+      ],
+      (err, row) => {
+        if (err) {
+          console.error('Expected cost DB 쿼리 오류:', err);
+          resolve(Infinity);
+          return;
+        }
+        
+        if (row && row.expected_cost_to_goal !== null && row.expected_cost_to_goal !== undefined) {
+          resolve(parseFloat(row.expected_cost_to_goal));
+        } else {
+          resolve(Infinity);
+        }
+      }
+    );
+  });
+};
+
+/**
  * SQLite 데이터베이스에서 확률 조회 (캐싱 포함)
  */
 const getLocalProbability = (gem, goalKey) => {
@@ -208,12 +260,12 @@ const getLocalProbability = (gem, goalKey) => {
       return;
     }
     
-    // gem_states 테이블에서 조회 (gem_state 키가 아닌 개별 컬럼으로 매칭)
+    // goal_probabilities 테이블에서 조회 (gem_state 키가 아닌 개별 컬럼으로 매칭)
     const cappedReroll = Math.min(MAX_REROLL, gem.currentRerollAttempts || 0);
     const firstProcessing = (gem.processingCount || 0) === 0 ? 1 : 0;
     
     db.get(
-      `SELECT ${columnName} FROM gem_states 
+      `SELECT ${columnName} FROM goal_probabilities 
        WHERE willpower = ? AND corePoint = ? AND dealerA = ? AND dealerB = ? 
        AND supportA = ? AND supportB = ? AND remainingAttempts = ? 
        AND currentRerollAttempts = ? AND costModifier = ? AND isFirstProcessing = ?`,
@@ -304,7 +356,7 @@ const queryPercentileInfo = async (gem, goalKey, currentProbPercent) => {
     const firstProcessing = (gem.processingCount || 0) === 0 ? 1 : 0;
     
     db.get(
-      `SELECT id FROM gem_states 
+      `SELECT id FROM goal_probabilities 
        WHERE willpower = ? AND corePoint = ? AND dealerA = ? AND dealerB = ? 
        AND supportA = ? AND supportB = ? AND remainingAttempts = ? 
        AND currentRerollAttempts = ? AND costModifier = ? AND isFirstProcessing = ?`,
@@ -327,7 +379,7 @@ const queryPercentileInfo = async (gem, goalKey, currentProbPercent) => {
         const target = goalKey;
         
         db.all(
-          `SELECT percentile, value FROM gem_state_distributions 
+          `SELECT percentile, value FROM goal_probability_distributions 
            WHERE gem_state_id = ? AND target = ? 
            ORDER BY percentile ASC`,
           [gemStateId, target],
@@ -736,9 +788,11 @@ export const runSimulation = async (mainType, subType, grade, goalKey, options =
     
     if (isFirstRun) {
       const initialProb = await getLocalProbability(currentGem, goalKey);
+      const initialExpectedCost = await getLocalExpectedCost(currentGem, goalKey);
       console.log(`초기 젬: 의지력 ${currentGem.willpower}, 코어 ${currentGem.corePoint}, 딜러A ${currentGem.dealerA}, 딜러B ${currentGem.dealerB}, 서폿A ${currentGem.supportA}, 서폿B ${currentGem.supportB}`);
       console.log(`남은 가공 횟수: ${currentGem.remainingAttempts}, 리롤 횟수: ${currentGem.currentRerollAttempts}`);
       console.log(`초기 ${goalKey} 달성 확률: ${initialProb.toFixed(4)}%`);
+      console.log(`초기 예상 비용: ${initialExpectedCost === Infinity ? '∞' : Math.round(initialExpectedCost)}골드`);
     }
     
     while (currentGem.remainingAttempts > 0) {
@@ -753,10 +807,12 @@ export const runSimulation = async (mainType, subType, grade, goalKey, options =
       
       if (isFirstRun) {
         const currentProb = await getLocalProbability(currentGem, goalKey);
+        const currentExpectedCost = await getLocalExpectedCost(currentGem, goalKey);
         console.log(`\n--- 가공 시도 ${attempts} ---`);
         console.log(`현재 젬 상태: 의지력 ${currentGem.willpower}, 코어 ${currentGem.corePoint}, 딜러A ${currentGem.dealerA}, 딜러B ${currentGem.dealerB}, 서폿A ${currentGem.supportA}, 서폿B ${currentGem.supportB}`);
         console.log(`남은 가공: ${currentGem.remainingAttempts}, 리롤: ${currentGem.currentRerollAttempts}`);
         console.log(`현재 ${goalKey} 달성 확률: ${currentProb.toFixed(4)}%`);
+        console.log(`현재 예상 비용: ${currentExpectedCost === Infinity ? '∞' : Math.round(currentExpectedCost)}골드`);
       }
             
       // 리롤 루프 - 더 좋은 옵션이 나올 때까지 계속 리롤
@@ -881,8 +937,10 @@ export const runSimulation = async (mainType, subType, grade, goalKey, options =
         
         if (isFirstRun) {
           const afterProcessingProb = await getLocalProbability(currentGem, goalKey);
+          const afterProcessingExpectedCost = await getLocalExpectedCost(currentGem, goalKey);
           console.log(`가공 후: 의지력 ${currentGem.willpower}, 코어 ${currentGem.corePoint}, 딜러A ${currentGem.dealerA}, 딜러B ${currentGem.dealerB}, 서폿A ${currentGem.supportA}, 서폿B ${currentGem.supportB}`);
           console.log(`가공 후 ${goalKey} 달성 확률: ${afterProcessingProb.toFixed(4)}%`);
+          console.log(`가공 후 예상 비용: ${afterProcessingExpectedCost === Infinity ? '∞' : Math.round(afterProcessingExpectedCost)}골드`);
           console.log(`가공 비용: ${Math.round(processingCost)}골드 (누적: ${Math.round(totalCost)}골드)`);
         }
         

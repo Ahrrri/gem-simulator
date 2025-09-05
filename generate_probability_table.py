@@ -22,6 +22,17 @@ import json
 # 상수 정의
 MAX_REROLL_ATTEMPTS = 3  # 전체 상태 생성 시 고려하는 최대 리롤 횟수 (0~6)
 MAX_REROLL_FOR_MEMOIZATION = MAX_REROLL_ATTEMPTS - 1  # 메모이제이션 효율성을 위한 리롤 횟수 상한 (6)
+
+# 젬 가공 관련 상수
+PROCESSING_COST = 900  # 기본 가공 비용 (골드)
+
+# isFirstProcessing이 True일 수 있는 유효한 조합
+# gemConstants.js의 getProcessingAttempts, getRerollAttempts와 일치
+VALID_FIRST_PROCESSING_COMBINATIONS = [
+    (5, 0),   # 고급 젬: 5회 가공, 0회 리롤
+    (7, 1),   # 희귀 젬: 7회 가공, 1회 리롤  
+    (9, 2)    # 영웅 젬: 9회 가공, 2회 리롤
+]
 import shutil
 import os
 
@@ -789,7 +800,7 @@ def calculate_probabilities(gem: GemState, memo: Dict[str, Dict], combo_memo: Di
         # 메모이제이션 히트 - 버퍼에 저장 (배치 처리용)
         global memo_hit_buffer
         memo_hit_buffer.add(key)
-        return memo[key]['probabilities']
+        return memo[key]
     
     # 목표 조건들 확인
     targets = check_target_conditions(gem)
@@ -814,10 +825,16 @@ def calculate_probabilities(gem: GemState, memo: Dict[str, Dict], combo_memo: Di
                                         40: base_prob, 50: base_prob, 60: base_prob,
                                         70: base_prob, 80: base_prob, 90: base_prob}
         
+        # Terminal 상태에서는 모든 목표의 기대 비용이 0
+        terminal_expected_costs = {}
+        for target in targets:
+            terminal_expected_costs[target] = 0.0
+        
         memo[key] = {
             'probabilities': base_probabilities,
             'availableOptions': available_options,
-            'percentiles': base_percentiles
+            'percentiles': base_percentiles,
+            'expectedCosts': terminal_expected_costs
         }
         # 새로운 계산 완료 시 진행 상황 출력
         calculation_counter += 1
@@ -849,10 +866,11 @@ def calculate_probabilities(gem: GemState, memo: Dict[str, Dict], combo_memo: Di
         if calculation_counter % 10000 == 0 and visualizer:
             visualizer.save_current_video(f"checkpoint_{calculation_counter}")
         
-        return base_probabilities
+        return memo[key]
     
     # 실제 게임 로직: 4개 조합을 뽑고 그 중 하나를 25% 확률로 선택
-    result = {target: 0.0 for target in targets}
+    probabilities = {target: 0.0 for target in targets}
+    expected_costs = {target: 0.0 for target in targets}
     
     # reroll이 가능한지 확인 (첫 시도에서는 불가능)
     can_reroll = gem.currentRerollAttempts > 0 and gem.remainingAttempts > 0 and not gem.isFirstProcessing
@@ -874,18 +892,13 @@ def calculate_probabilities(gem: GemState, memo: Dict[str, Dict], combo_memo: Di
             costModifier=gem.costModifier,
             isFirstProcessing=False  # 리롤 후는 당연히 첫 가공이 아닌 상태임
         )
-        reroll_future_probs = calculate_probabilities(rerolled_gem, memo, combo_memo)
-    
-    # 모든 target에 대한 결과 초기화
-    for target in targets:
-        result[target] = 0.0
-    
+        reroll_future_data = calculate_probabilities(rerolled_gem, memo, combo_memo)
+        reroll_future_probs = reroll_future_data['probabilities']
+        reroll_future_costs = reroll_future_data['expectedCosts']
+        
+    # 모든 4개 조합에 대해 실제 확률 계산
     # 4combo 확률 계산 (메모이제이션 포함)
     combo_probs = calculate_combo_probabilities_for_gem(gem, available_options, combo_memo)
-    
-    # 모든 4개 조합에 대해 실제 확률 계산
-    # target별로 combo 데이터를 저장 (퍼센타일 계산용)
-    target_combo_data = {target: [] for target in targets}
     
     # 역매핑 준비 (effect1 -> dealerA 등)
     reverse_mapping = {}
@@ -898,6 +911,9 @@ def calculate_probabilities(gem: GemState, memo: Dict[str, Dict], combo_memo: Di
         if level > 0:
             reverse_mapping[f'effect{effect_idx}'] = name
             effect_idx += 1
+            
+    # target별로 combo 데이터를 저장 (퍼센타일 계산용)
+    target_combo_data = {target: [] for target in targets}
     
     for combo_key, combo_prob in combo_probs.items():
         # combo_key는 항상 정규화된 액션 튜플
@@ -915,29 +931,42 @@ def calculate_probabilities(gem: GemState, memo: Dict[str, Dict], combo_memo: Di
                     combo_options.append(opt)
                     break
         
-        # 이 조합의 각 옵션별 미래 확률 계산
+        # 이 조합의 각 옵션별 미래 확률과 cost 계산
         combo_future_probs = {}
+        combo_future_costs = {}
         for option in combo_options:
             next_gem = apply_processing(gem, option['action'])
-            future_probs = calculate_probabilities(next_gem, memo, combo_memo)
-            combo_future_probs[option['action']] = future_probs
+            future_data = calculate_probabilities(next_gem, memo, combo_memo)
+            combo_future_probs[option['action']] = future_data['probabilities']
+            combo_future_costs[option['action']] = future_data['expectedCosts']
         
         # 모든 target에 대해 이 조합의 기여도 계산
-        combo_target_values = {}
         for target in targets:
-            # 이 조합에서의 진행 확률 (4개 중 균등 선택)
+            # 현재 가공 비용 (costModifier 적용)
+            processing_cost = PROCESSING_COST * (1 + gem.costModifier / 100)
+            
+            # 이 조합에서의 진행 확률과 cost (4개 중 균등 선택)
             combo_progress_value = 0.0
+            combo_progress_cost = processing_cost  # 현재 가공 비용
             for option in combo_options:
                 combo_progress_value += combo_future_probs[option['action']][target] * 0.25
-            
-            # 이 조합에서 최적 선택 (현재 상태, 진행, 리롤 중)
+                combo_progress_cost += combo_future_costs[option['action']][target] * 0.25
+                        
+            # 이 조합에서 최적 선택 (현재 상태에서 중단, 진행, 리롤 중) - 확률 기준
             combo_options_list = [base_probabilities[target], combo_progress_value]
-            if can_reroll and reroll_future_probs:
-                combo_options_list.append(reroll_future_probs[target])
+            combo_costs_list = [0.0, combo_progress_cost]  # 현재 상태에서 중단하면 cost 0 (이미 달성)
             
-            combo_best = max(combo_options_list)
-            combo_target_values[target] = combo_best
-            result[target] += combo_prob * combo_best
+            if can_reroll and reroll_future_probs:
+                combo_options_list.append(reroll_future_probs[target]) # type: ignore
+                combo_costs_list.append(reroll_future_costs[target]) # type: ignore
+            
+            # 최적 선택 (가장 높은 확률)
+            best_idx = combo_options_list.index(max(combo_options_list))
+            combo_best = combo_options_list[best_idx]
+            combo_best_cost = combo_costs_list[best_idx]
+            
+            probabilities[target] += combo_prob * combo_best
+            expected_costs[target] += combo_prob * combo_best_cost
             
             # 퍼센타일 계산용 데이터 저장
             target_combo_data[target].append((combo_progress_value, combo_prob))
@@ -969,14 +998,16 @@ def calculate_probabilities(gem: GemState, memo: Dict[str, Dict], combo_memo: Di
             'probability': option['probability'],
             'description': option.get('description', ''),
             'selectionProbability': selection_probs[option['action']]  # 실제로 더 이상 리롤하지 않았을 때 선택될 확률
-        })
+        })   
     
+    # 결과를 memo에 저장
     memo[key] = {
-        'probabilities': result,
-        'availableOptions': options_with_probs,
-        'percentiles': target_percentiles
+        'probabilities': probabilities,
+        'availableOptions': available_options,
+        'percentiles': target_percentiles,
+        'expectedCosts': expected_costs
     }
-    
+       
     # 새로운 계산 완료 시 진행 상황 출력
     calculation_counter += 1
     
@@ -989,9 +1020,9 @@ def calculate_probabilities(gem: GemState, memo: Dict[str, Dict], combo_memo: Di
     available_count = len(available_options)
     combo_4_count = comb(available_count, 4) if available_count >= 4 else 0
     print(f"계산 완료: {calculation_counter:>5d}개 상태 ({key}) "
-          f"8+: {result['sum8+']:.6f}, 9+: {result['sum9+']:.6f}, "
-          f"r+: {result['relic+']:.6f}, a+: {result['ancient+']:.6f}, "
-          f"d_comp: {result['dealer_complete']:.6f}, s_comp: {result['support_complete']:.6f}, "
+          f"8+: {probabilities['sum8+']:.6f}, 9+: {probabilities['sum9+']:.6f}, "
+          f"r+: {probabilities['relic+']:.6f}, a+: {probabilities['ancient+']:.6f}, "
+          f"d_comp: {probabilities['dealer_complete']:.6f}, s_comp: {probabilities['support_complete']:.6f}, "
           f"memo_hit: {memo_hit_count:2d}개, combo_memo: {len(combo_memo)}패턴/{total_combo_count}조합, "
           f"options: {available_count}개, 4조합: {combo_4_count}개, "
           f"경과시간: {elapsed_time:.2f}s, 평균: {avg_time_per_state * 1000:.3f}s/1000 상태")
@@ -1007,7 +1038,8 @@ def calculate_probabilities(gem: GemState, memo: Dict[str, Dict], combo_memo: Di
     if calculation_counter % 10000 == 0 and visualizer:
         visualizer.save_current_video(f"checkpoint_{calculation_counter}")
     
-    return result
+    # 전체 데이터 반환 (memo에 저장된 것과 동일)
+    return memo[key]
 
 def _generate_probability_table_impl(memo=None, combo_memo=None, enable_visualization=True):
     """확률 테이블 생성 구현부 (메모이제이션 외부 제공 가능)"""
@@ -1028,7 +1060,6 @@ def _generate_probability_table_impl(memo=None, combo_memo=None, enable_visualiz
             print(f"⚠️ 시각화 초기화 실패: {e}")
             visualizer = None
     
-    probability_table = {}
     # 메모이제이션 초기화 또는 외부에서 제공받은 것 사용
     if memo is None:
         memo = {}
@@ -1051,10 +1082,17 @@ def _generate_probability_table_impl(memo=None, combo_memo=None, enable_visualiz
                                         if non_zero_count != 2:
                                             continue
                                                                                 
-                                        # remainingAttempts가 5,7,9일 때만 isFirstProcessing이 True일 수 있음
-                                        # 그리고 isFirstProcessing=True일 때는 모든 값의 합이 4여야 함 (초기 상태)
+                                        # isFirstProcessing=True 조건:
+                                        # 1. 모든 값의 합이 4 (초기 상태)
+                                        # 2. costModifier = 0
+                                        # 3. (remainingAttempts, currentRerollAttempts) = (5, 0), (7, 1), (9, 2) 중 하나
                                         total_values = willpower + corePoint + dealerA + dealerB + supportA + supportB
-                                        possible_first = [True, False] if (remainingAttempts in [5, 7, 9] and total_values == 4) else [False]
+                                        is_valid_first = (
+                                            total_values == 4 and 
+                                            costModifier == 0 and 
+                                            (remainingAttempts, currentRerollAttempts) in VALID_FIRST_PROCESSING_COMBINATIONS
+                                        )
+                                        possible_first = [True, False] if is_valid_first else [False]
                                         for isFirstProcessing in possible_first:
                                             try:
                                                 gem = GemState(
@@ -1070,16 +1108,11 @@ def _generate_probability_table_impl(memo=None, combo_memo=None, enable_visualiz
                                                     isFirstProcessing=isFirstProcessing
                                                 )
                                                 # 확률 계산
-                                                probs = calculate_probabilities(gem, memo, combo_memo)
+                                                _ = calculate_probabilities(gem, memo, combo_memo)
                                                 
                                                 # 상태 키 생성 및 저장 (확률 + 사용가능 옵션)
                                                 state_key = state_to_key(gem)
-                                                if state_key in memo:
-                                                    probability_table[state_key] = memo[state_key]
-                                                else:
-                                                    # fallback: 확률만 저장
-                                                    probability_table[state_key] = {'probabilities': probs, 'availableOptions': []}
-                                                    
+                                                # memo에 결과가 자동으로 저장됨 (calculate_probabilities에서)
                                                 total_states += 1
                                                 
                                             except Exception as e:
@@ -1125,7 +1158,7 @@ def _generate_probability_table_impl(memo=None, combo_memo=None, enable_visualiz
     print(f"소요 시간: {elapsed_time:.1f}초")
     print(f"평균 계산 속도: {total_states/elapsed_time:.0f} 상태/초")
     
-    return probability_table
+    return memo
 
 def generate_probability_table_with_shared_memo(shared_memo: dict, shared_combo_memo: dict, enable_visualization: bool = True) -> dict:
     """메모이제이션을 공유하며 확률 테이블 생성"""
@@ -1140,9 +1173,9 @@ def create_database_schema(db_path: str):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     
-    # 젬 상태 테이블 (퍼센타일 필드 제거)
+    # 목표별 확률 테이블
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS gem_states (
+        CREATE TABLE IF NOT EXISTS goal_probabilities (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             willpower INTEGER NOT NULL,
             corePoint INTEGER NOT NULL,
@@ -1172,19 +1205,19 @@ def create_database_schema(db_path: str):
         )
     """)
     
-    # CDF 테이블 (누적확률분포 저장)
+    # 목표별 확률 분포 테이블 (CDF/percentile 데이터)
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS gem_state_distributions (
+        CREATE TABLE IF NOT EXISTS goal_probability_distributions (
             gem_state_id INTEGER NOT NULL,
             target TEXT NOT NULL,
             percentile INTEGER NOT NULL,
             value REAL NOT NULL,
-            FOREIGN KEY (gem_state_id) REFERENCES gem_states (id),
+            FOREIGN KEY (gem_state_id) REFERENCES goal_probabilities (id),
             PRIMARY KEY (gem_state_id, target, percentile)
         )
     """)
     
-    # 사용 가능한 옵션들 테이블
+    # 사용 가능한 옵션 테이블
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS available_options (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1193,19 +1226,17 @@ def create_database_schema(db_path: str):
             probability REAL NOT NULL,
             description TEXT NOT NULL,
             selectionProbability REAL NOT NULL,
-            FOREIGN KEY (gem_state_id) REFERENCES gem_states (id)
+            FOREIGN KEY (gem_state_id) REFERENCES goal_probabilities (id)
         )
     """)
     
-    # 기대 비용 테이블 (목표별 최소 비용)
+    # 기대 비용 테이블
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS gem_expected_costs (
+        CREATE TABLE IF NOT EXISTS expected_costs (
             gem_state_id INTEGER NOT NULL,
             target TEXT NOT NULL,
             expected_cost_to_goal REAL NOT NULL,
-            expected_attempts REAL NOT NULL,
-            can_achieve_goal BOOLEAN NOT NULL,
-            FOREIGN KEY (gem_state_id) REFERENCES gem_states (id),
+            FOREIGN KEY (gem_state_id) REFERENCES goal_probabilities (id),
             PRIMARY KEY (gem_state_id, target)
         )
     """)
@@ -1213,12 +1244,12 @@ def create_database_schema(db_path: str):
     # 인덱스 생성
     cursor.execute("""
         CREATE INDEX IF NOT EXISTS idx_willpower_corepoint 
-        ON gem_states (willpower, corePoint)
+        ON goal_probabilities (willpower, corePoint)
     """)
     
     cursor.execute("""
         CREATE INDEX IF NOT EXISTS idx_expected_costs_target 
-        ON gem_expected_costs (target, expected_cost_to_goal)
+        ON expected_costs (target, expected_cost_to_goal)
     """)
     
     conn.commit()
@@ -1252,7 +1283,7 @@ def save_to_database(table: dict, db_path: str):
         
         # 젬 상태 저장
         cursor.execute("""
-            INSERT OR REPLACE INTO gem_states (
+            INSERT OR REPLACE INTO goal_probabilities (
                 willpower, corePoint, dealerA, dealerB, supportA, supportB,
                 remainingAttempts, currentRerollAttempts, costModifier, isFirstProcessing,
                 prob_5_5, prob_5_4, prob_4_5, prob_5_3, prob_4_4, prob_3_5,
@@ -1282,7 +1313,7 @@ def save_to_database(table: dict, db_path: str):
             if isinstance(percentile_data, dict):
                 for percentile, value in percentile_data.items():
                     cursor.execute("""
-                        INSERT OR REPLACE INTO gem_state_distributions (
+                        INSERT OR REPLACE INTO goal_probability_distributions (
                             gem_state_id, target, percentile, value
                         ) VALUES (?, ?, ?, ?)
                     """, (gem_state_id, target, percentile, value))
@@ -1300,6 +1331,15 @@ def save_to_database(table: dict, db_path: str):
                 option.get('description', ''),
                 option.get('selectionProbability', 0.0)
             ))
+        
+        # Expected costs 저장
+        expected_costs = state_data.get('expectedCosts', {})
+        for target, cost in expected_costs.items():
+            cursor.execute("""
+                INSERT INTO expected_costs (
+                    gem_state_id, target, expected_cost_to_goal
+                ) VALUES (?, ?, ?)
+            """, (gem_state_id, target, cost))
         
         processed += 1
         if processed % 1000 == 0:

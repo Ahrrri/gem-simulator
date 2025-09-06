@@ -104,6 +104,12 @@ export function formatProbabilities(probabilities) {
   if (probabilities.availableOptions) {
     result.availableOptions = probabilities.availableOptions;
   }
+
+  // expectedCosts 정보 추가 (있는 경우)
+  if (probabilities.expectedCosts) {
+    result.expectedCosts = probabilities.expectedCosts;
+  }
+  
   return result;
 }
 

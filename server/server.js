@@ -27,7 +27,7 @@ app.use(express.json());
 function initDatabase() {
   return new Promise((resolve, reject) => {
     // probability_table.db는 프로젝트 루트에 있다고 가정
-    const dbPath = join(__dirname, '../probability_table_reroll_6.db');
+    const dbPath = join(__dirname, '../probability_table_reroll_7_1.db');
     
     db = new sqlite3.Database(dbPath, (err) => {
       if (err) {
@@ -37,7 +37,7 @@ function initDatabase() {
         console.log('✅ SQLite 데이터베이스 연결 성공');
         
         // 데이터베이스 정보 확인
-        db.get("SELECT COUNT(*) as count FROM gem_states", (err, row) => {
+        db.get("SELECT COUNT(*) as count FROM goal_probabilities", (err, row) => {
           if (err) {
             console.error('테이블 확인 실패:', err.message);
           } else {
@@ -61,7 +61,7 @@ app.get('/api/stats', (req, res) => {
   const query = `
     SELECT 
       COUNT(*) as total_states
-    FROM gem_states
+    FROM goal_probabilities
   `;
   
   db.get(query, [], (err, row) => {
@@ -84,7 +84,7 @@ app.get('/api/gem-probabilities', (req, res) => {
     SELECT id, prob_5_5, prob_5_4, prob_4_5, prob_5_3, prob_4_4, prob_3_5,
            prob_sum8, prob_sum9, prob_relic, prob_ancient, 
            prob_dealer_complete, prob_support_complete
-    FROM gem_states 
+    FROM goal_probabilities 
     WHERE willpower = ? AND corePoint = ? 
       AND dealerA = ? AND dealerB = ? AND supportA = ? AND supportB = ?
       AND remainingAttempts = ? AND currentRerollAttempts = ?
@@ -111,7 +111,7 @@ app.get('/api/gem-probabilities', (req, res) => {
       // percentile 데이터도 가져오기
       const percentileQuery = `
         SELECT target, percentile, value
-        FROM gem_state_distributions
+        FROM goal_probability_distributions
         WHERE gem_state_id = ?
         ORDER BY target, percentile
       `;
@@ -143,13 +143,34 @@ app.get('/api/gem-probabilities', (req, res) => {
             if (err3) {
               res.status(500).json({ error: err3.message });
             } else {
-              // id 필드 제거하고 percentiles, availableOptions 추가
-              const { id, ...probabilities } = row;
-              console.log(row);
-              res.json({
-                ...probabilities,
-                percentiles,
-                availableOptions: optionRows || []
+              // expected_costs 데이터도 가져오기
+              const costsQuery = `
+                SELECT target, expected_cost_to_goal
+                FROM expected_costs
+                WHERE gem_state_id = ?
+              `;
+              
+              db.all(costsQuery, [row.id], (err4, costRows) => {
+                if (err4) {
+                  res.status(500).json({ error: err4.message });
+                } else {
+                  // expected costs를 구조화
+                  const expectedCosts = {};
+                  if (costRows) {
+                    for (const cRow of costRows) {
+                      expectedCosts[cRow.target] = cRow.expected_cost_to_goal;
+                    }
+                  }
+                  
+                  // id 필드 제거하고 percentiles, availableOptions, expectedCosts 추가
+                  const { id, ...probabilities } = row;
+                  res.json({
+                    ...probabilities,
+                    percentiles,
+                    availableOptions: optionRows || [],
+                    expectedCosts
+                  });
+                }
               });
             }
           });

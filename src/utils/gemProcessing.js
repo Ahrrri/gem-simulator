@@ -284,7 +284,8 @@ export async function loadOptionProbabilities(gem, options) {
           
           optionsWithProbabilities.push({
             ...option,
-            resultProbabilities
+            resultProbabilities,
+            resultExpectedCosts: resultProbabilities?.expectedCosts
           });
         } else {
           // 적용할 수 없는 옵션인 경우

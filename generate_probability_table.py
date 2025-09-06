@@ -952,13 +952,17 @@ def calculate_probabilities(gem: GemState, memo: Dict[str, Dict], combo_memo: Di
                 combo_progress_value += combo_future_probs[option['action']][target] * 0.25
                 combo_progress_cost += combo_future_costs[option['action']][target] * 0.25
                         
+            # 확률을 1.0으로 클램핑 (1 초과 방지)
+            combo_progress_value = min(1.0, combo_progress_value)
+            
             # 이 조합에서 최적 선택 (현재 상태에서 중단, 진행, 리롤 중) - 확률 기준
             combo_options_list = [base_probabilities[target], combo_progress_value]
             combo_costs_list = [0.0, combo_progress_cost]  # 현재 상태에서 중단하면 cost 0 (이미 달성)
             
             if can_reroll and reroll_future_probs:
-                combo_options_list.append(reroll_future_probs[target]) # type: ignore
-                combo_costs_list.append(reroll_future_costs[target]) # type: ignore
+                reroll_prob = min(1.0, reroll_future_probs[target])  # 리롤 확률도 클램핑
+                combo_options_list.append(reroll_prob)
+                combo_costs_list.append(processing_cost + reroll_future_costs[target])
             
             # 최적 선택 (가장 높은 확률)
             best_idx = combo_options_list.index(max(combo_options_list))
@@ -1003,7 +1007,7 @@ def calculate_probabilities(gem: GemState, memo: Dict[str, Dict], combo_memo: Di
     # 결과를 memo에 저장
     memo[key] = {
         'probabilities': probabilities,
-        'availableOptions': available_options,
+        'availableOptions': options_with_probs,
         'percentiles': target_percentiles,
         'expectedCosts': expected_costs
     }

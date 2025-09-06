@@ -1086,16 +1086,22 @@ function ProcessingGemDisplay({
                                 {parseFloat(optionProb) === maxProb && maxProb > 0 && parseFloat(rerollProb) > 0 && <span className="better-indicator">↑</span>}
                               </span>
                               
-                              {/* 호버 툴팁 - 각 옵션별 확률 표시 */}
+                              {/* 호버 툴팁 - 각 옵션별 확률 및 비용 표시 */}
                               <div className="prob-tooltip">
                                 <div className="tooltip-title">
-                                  각 옵션별 {currentProbabilities?.[target]?.label || target} 확률
+                                  각 옵션별 {currentProbabilities?.[target]?.label || target} 확률 및 예상 비용
                                   {percentileText && <span style={{ color: '#4CAF50', marginLeft: '8px' }}>{percentileText}</span>}
                                 </div>
                                 {optionProbabilities.map((option, idx) => {
                                   const optionTargetProb = option.resultProbabilities ? 
                                     option.resultProbabilities?.[target]?.percent || '0.0' : '0.0';
                                   const optionDesc = option.description || option.action;
+
+                                  // Expected cost 가져오기 (option.expectedCosts가 있다면)
+                                  const optionExpectedCost = option.resultExpectedCosts?.[target];
+                                  const costDisplay = optionExpectedCost !== undefined ? 
+                                    (optionExpectedCost === Infinity ? '∞' : `${Math.round(optionExpectedCost).toLocaleString()}G`) : 
+                                    '-';
                                   
                                   return (
                                     <div key={idx} className="tooltip-option">
@@ -1107,6 +1113,9 @@ function ProcessingGemDisplay({
                                         })()}
                                       </span>
                                       <span className="tooltip-option-prob">{optionTargetProb}%</span>
+                                      <span className="tooltip-option-cost" style={{ marginLeft: '8px', color: '#756400ff' }}>
+                                        ({costDisplay})
+                                      </span>
                                     </div>
                                   );
                                 })}

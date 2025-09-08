@@ -27,7 +27,7 @@ app.use(express.json());
 function initDatabase() {
   return new Promise((resolve, reject) => {
     // probability_table.db는 프로젝트 루트에 있다고 가정
-    const dbPath = join(__dirname, '../probability_table_reroll_7_1.db');
+    const dbPath = join(__dirname, '../probability_table_reroll_7.db');
     
     db = new sqlite3.Database(dbPath, (err) => {
       if (err) {
@@ -74,11 +74,15 @@ app.get('/api/stats', (req, res) => {
 });
 
 // 젬 상태별 확률 조회 (percentile 포함)
+// 압축된 형식 사용: s=2_1_1_2_0_0_6_2_100_0
 app.get('/api/gem-probabilities', (req, res) => {
-  const {
-    willpower, corePoint, dealerA, dealerB, supportA, supportB,
-    remainingAttempts, currentRerollAttempts = 0, costModifier = 0, isFirstProcessing = 0
-  } = req.query;
+  if (!req.query.s) {
+    return res.status(400).json({ error: 'Missing required parameter: s' });
+  }
+  
+  const values = req.query.s.split('_').map(Number);
+  const [willpower, corePoint, dealerA, dealerB, supportA, supportB,
+         remainingAttempts, currentRerollAttempts = 0, costModifier = 0, isFirstProcessing = 0] = values;
   
   const query = `
     SELECT id, prob_5_5, prob_5_4, prob_4_5, prob_5_3, prob_4_4, prob_3_5,

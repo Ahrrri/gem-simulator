@@ -57,17 +57,22 @@ export async function checkServerHealth() {
  * 젬 상태별 확률 조회 (포맷된 결과 반환)
  */
 export async function getGemProbabilities(gemState) {
+  // 압축된 형식 사용: s=willpower_corePoint_dealerA_dealerB_supportA_supportB_remainingAttempts_currentRerollAttempts_costModifier_isFirstProcessing
+  const values = [
+    gemState.willpower,
+    gemState.corePoint,
+    gemState.dealerA || 0,
+    gemState.dealerB || 0,
+    gemState.supportA || 0,
+    gemState.supportB || 0,
+    gemState.remainingAttempts,
+    gemState.currentRerollAttempts || 0,
+    gemState.costModifier || 0,
+    gemState.isFirstProcessing ? 1 : 0
+  ];
+  
   const params = new URLSearchParams({
-    willpower: gemState.willpower,
-    corePoint: gemState.corePoint,
-    dealerA: gemState.dealerA || 0,
-    dealerB: gemState.dealerB || 0,
-    supportA: gemState.supportA || 0,
-    supportB: gemState.supportB || 0,
-    remainingAttempts: gemState.remainingAttempts,
-    currentRerollAttempts: gemState.currentRerollAttempts || 0,
-    costModifier: gemState.costModifier || 0,
-    isFirstProcessing: gemState.isFirstProcessing ? 1 : 0
+    s: values.join('_')
   });
 
   const result = await apiRequest(`/api/gem-probabilities?${params}`);

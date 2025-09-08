@@ -87,7 +87,7 @@ function GemCreationSection({
         <div className="gem-creation">
           <div className="creation-modes">
             <div className="manual-processing">
-              <h3>수동 가공</h3>
+              <h3>수동 생성</h3>
               
               {/* 젬 등급 선택 */}
               <div className="grade-selection">

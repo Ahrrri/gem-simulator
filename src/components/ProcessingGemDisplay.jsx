@@ -95,6 +95,7 @@ function ProcessingGemDisplay({
   const handleLoadCurrentProbabilities = async () => {
     try {
       setIsLoadingProbabilities(true);
+      setCurrentProbabilities(null);  // 로딩 시작 전 초기화
       const probabilities = await loadCurrentProbabilities(processingGem);
       setCurrentProbabilities(probabilities);
     } catch (error) {
@@ -109,6 +110,7 @@ function ProcessingGemDisplay({
   const handleLoadOptionProbabilities = async () => {
     try {
       setIsLoadingProbabilities(true);
+      setOptionProbabilities(null);  // 로딩 시작 전 초기화
       const currentOptions = getCurrentOptionSet();
       const probabilities = await loadOptionProbabilities(processingGem, currentOptions);
       setOptionProbabilities(probabilities);
@@ -124,6 +126,7 @@ function ProcessingGemDisplay({
   const handleLoadRerollProbabilities = async () => {
     try {
       setIsLoadingProbabilities(true);
+      setRerollOptionProbabilities(null);  // 로딩 시작 전 초기화
       const probabilities = await loadRerollProbabilities(processingGem);
       setRerollOptionProbabilities(probabilities);
     } catch (error) {
@@ -438,7 +441,13 @@ function ProcessingGemDisplay({
                       setShowDisplayProbability(e.target.checked);
                     }}
                   />
-                  출현 확률 표시
+                  실제 출현 확률 표시
+                  <span 
+                    className="grade-tooltip" 
+                    title="실제로 4개 옵션 조합에 포함될 확률"
+                  >
+                    ℹ️
+                  </span>
                 </label>
                 <label className="probability-checkbox">
                   <input
@@ -452,6 +461,12 @@ function ProcessingGemDisplay({
                     }}
                   />
                   총합 400 기준 가중치
+                  <span 
+                    className="grade-tooltip" 
+                    title="가중치 합이 400이 되도록 정규화한 값"
+                  >
+                    ℹ️
+                  </span>
                 </label>
               </div>
             </div>
@@ -1078,7 +1093,9 @@ function ProcessingGemDisplay({
                         {getTargetDisplayLabel(target)}
                       </td>
                       <td className={`prob-cell ${parseFloat(optionProb) === maxProb && maxProb > 0 ? 'highest' : ''}`}>
-                        {optionProbabilities ? (
+                        {isLoadingProbabilities ? (
+                          <span className="prob-unavailable">계산 중...</span>
+                        ) : optionProbabilities ? (
                           <div className="prob-content">
                             <div className="prob-main has-details">
                               <span className={`prob-value ${parseFloat(optionProb) === maxProb && maxProb > 0 ? 'better' : ''}`}>
@@ -1127,7 +1144,9 @@ function ProcessingGemDisplay({
                         )}
                       </td>
                       <td className={`prob-cell ${parseFloat(rerollProb) === maxProb && maxProb > 0 ? 'highest' : ''}`}>
-                        {processingGem && processingGem.currentRerollAttempts > 0 && processingGem.processingCount > 0 ? (
+                        {isLoadingProbabilities ? (
+                          <span className="prob-unavailable">계산 중...</span>
+                        ) : processingGem && processingGem.currentRerollAttempts > 0 && processingGem.processingCount > 0 ? (
                           rerollOptionProbabilities ? (
                             <span className={`prob-value ${parseFloat(rerollProb) === maxProb && maxProb > 0 ? 'better' : ''}`}>
                               {rerollProb}%

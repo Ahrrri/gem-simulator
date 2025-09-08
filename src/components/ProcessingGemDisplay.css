@@ -1246,11 +1246,13 @@
 
 .comparison-table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;  /* collapse 대신 separate 사용 */
+  border-spacing: 0;  /* 셀 간격 0 */
   background: white;
   border-radius: 8px;
   overflow: visible;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  table-layout: fixed;  /* 테이블 레이아웃 고정 */
 }
 
 .comparison-table th {
@@ -1261,6 +1263,7 @@
 
 .comparison-table td {
   padding: 6px 4px;
+  height: 34px;  /* 고정 높이 */
 }
 
 /* 확률 내용 컨테이너 */
@@ -1396,20 +1399,19 @@
 }
 
 .comparison-table th.target-column {
-  width: 25%;
+  width: 16%;
   text-align: left;
   padding-left: 16px;
 }
 
 .comparison-table th.current-column,
 .comparison-table th.reroll-column,
-.comparison-table th.fixed-column {
-  width: 25%;
+.comparison-table th.option-column {
+  width: 28%;
 }
 
 .comparison-table td {
   padding: 10px 8px;
-  border-bottom: 1px solid #f1f3f4;
   text-align: center;
   font-size: 0.9rem;
 }
@@ -1430,28 +1432,47 @@
   overflow: visible;
 }
 
+.comparison-table tbody tr:nth-child(even) {
+  background-color: #fafbfc;
+}
+
 .comparison-table tr:hover {
-  background-color: #f8f9fa;
+  background-color: #f0f2f4;
 }
 
 .prob-cell {
   position: relative;
   overflow: visible;
+  min-width: 80px;  /* 최소 너비 설정 */
 }
 
 .prob-cell.highest {
   background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%) !important;
-  border: 2px solid #f39c12 !important;
+  box-shadow: 
+    inset 2px 0 0 0 #f39c12,   /* 왼쪽 2px */
+    inset -2px 0 0 0 #f39c12,  /* 오른쪽 2px */
+    inset 0 1px 0 0 #f39c12,   /* 위쪽 1px */
+    inset 0 -1px 0 0 #f39c12;  /* 아래쪽 1px */
   position: relative;
   animation: highlight-pulse 2s ease-in-out infinite;
 }
 
 @keyframes highlight-pulse {
   0%, 100% { 
-    box-shadow: 0 2px 8px rgba(243, 156, 18, 0.3);
+    box-shadow: 
+      inset 2px 0 0 0 #f39c12,
+      inset -2px 0 0 0 #f39c12,
+      inset 0 1px 0 0 #f39c12,
+      inset 0 -1px 0 0 #f39c12,
+      0 2px 8px rgba(243, 156, 18, 0.3);
   }
   50% { 
-    box-shadow: 0 4px 16px rgba(243, 156, 18, 0.6);
+    box-shadow: 
+      inset 2px 0 0 0 #f39c12,
+      inset -2px 0 0 0 #f39c12,
+      inset 0 1px 0 0 #f39c12,
+      inset 0 -1px 0 0 #f39c12,
+      0 4px 16px rgba(243, 156, 18, 0.6);
   }
 }
 
@@ -1478,6 +1499,8 @@
 .prob-unavailable {
   color: #6c757d;
   font-style: italic;
+  display: inline-block;
+  min-width: 60px;  /* 최소 너비 설정 */
 }
 
 .table-status {

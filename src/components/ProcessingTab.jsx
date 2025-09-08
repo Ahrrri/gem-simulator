@@ -3,7 +3,7 @@ import './ProcessingTab.css';
 import GemCreationSection from './GemCreationSection';
 import ProcessingGemDisplay from './ProcessingGemDisplay';
 import ImageCapture from './ImageCapture';
-import { recognizeGemFromImage, convertToSimulatorFormat } from '../utils/gemImageRecognition';
+import { convertOCRResultsToGem } from '../utils/gemImageRecognition';
 // import BatchAnalyzer from './BatchAnalyzer';
 
 function ProcessingTab() {
@@ -17,86 +17,75 @@ function ProcessingTab() {
   const [showDisplayProbability, setShowDisplayProbability] = useState(false);
   const [showNormalizedProbability, setShowNormalizedProbability] = useState(false);
   
-  // 이미지 인식 관련 상태
-  const [isRecognizing, setIsRecognizing] = useState(false);
-  const [recognitionError, setRecognitionError] = useState(null);
-  const [ocrProgress, setOcrProgress] = useState(0);
+  // 젬 생성 방식 상태 (auto: OCR 자동 생성, manual: 수동 입력)
+  const [gemCreationMode, setGemCreationMode] = useState('auto');
+  
 
   // 이미지 캡처 후 젬 정보 인식 처리
-  const handleImageCaptured = async (imageDataUrl) => {
+  const handleImageCaptured = async (ocrResults) => {
     try {
-      setIsRecognizing(true);
-      setRecognitionError(null);
-      setOcrProgress(0);
+      console.log('OCR 결과 수신:', ocrResults);
       
-      console.log('이미지 캡처 완료, 인식 시작...');
-      
-      // 이미지에서 젬 정보 인식 (개선된 옵션 사용)
-      const recognizedGem = await recognizeGemFromImage(imageDataUrl, {
-        usePreprocess: true,
-        preprocessOptions: {
-          scale: 2, // 2배 확대
-          sharpen: true, // 선명도 향상
-          denoise: true, // 노이즈 제거
-          binarize: false // 이진화는 배경이 복잡한 경우 비활성화
-        },
-        ocrConfig: {
-          tessedit_char_whitelist: '0123456789가-힣ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz%+:. ', // 인식할 문자 제한
-        }
-      });
-      
-      // 인식된 정보를 시뮬레이터 형식으로 변환
-      const convertedGem = convertToSimulatorFormat(recognizedGem);
-      
-      if (convertedGem) {
-        // 인식된 젬을 processingGem으로 설정
-        setProcessingGem(convertedGem);
-        console.log('젬 정보 자동 업데이트 완료:', convertedGem);
+      if (ocrResults) {
+        // OCR 결과를 젬 정보로 변환
+        const convertedGem = convertOCRResultsToGem(ocrResults);
         
-        // 성공 메시지 표시 (잠시 후 자동 제거)
-        setTimeout(() => {
-          setOcrProgress(0);
-        }, 3000);
+        if (convertedGem) {
+          // 인식된 젬을 processingGem으로 설정
+          setProcessingGem(convertedGem);
+          console.log('젬 정보 자동 업데이트 완료:', convertedGem);
+        } else {
+          console.warn('OCR 결과를 젬 정보로 변환 실패');
+        }
       }
       
     } catch (error) {
-      console.error('이미지 인식 실패:', error);
-      setRecognitionError('이미지에서 젬 정보를 인식하지 못했습니다. 더 선명한 이미지로 다시 시도해주세요.');
-    } finally {
-      setIsRecognizing(false);
+      console.error('젬 정보 변환 실패:', error);
     }
   };
 
   return (
     <div className="processing-tab">
-      {/* 이미지 캡처 섹션 */}
-      <div className="image-capture-section">
-        <h3>🖼️ 젬 이미지 자동 인식</h3>
-        <ImageCapture onImageCaptured={handleImageCaptured} />
-        
-        {/* 인식 상태 표시 */}
-        {isRecognizing && (
-          <div className="recognition-status">
-            <span>🔍 젬 정보 인식 중...</span>
-          </div>
-        )}
-        
-        {recognitionError && (
-          <div className="recognition-error">
-            <span>❌ {recognitionError}</span>
-          </div>
-        )}
+      {/* 젬 생성 방식 선택 */}
+      <div className="gem-creation-mode-selector">
+        <div className="mode-buttons">
+          <button
+            className={`mode-btn ${gemCreationMode === 'auto' ? 'active' : ''}`}
+            onClick={() => setGemCreationMode('auto')}
+          >
+            🖼️ 이미지 자동 인식
+          </button>
+          <button
+            className={`mode-btn ${gemCreationMode === 'manual' ? 'active' : ''}`}
+            onClick={() => setGemCreationMode('manual')}
+          >
+            ✏️ 수동 입력
+          </button>
+        </div>
       </div>
+
+      {/* OCR 자동 인식 섹션 */}
+      {gemCreationMode === 'auto' && (
+        <div className="image-capture-section">
+          <ImageCapture onImageCaptured={handleImageCaptured} />
+        </div>
+      )}
+
+      {/* 수동 입력 섹션 */}
+      {gemCreationMode === 'manual' && (
+        <div className="manual-creation-section">
+          <GemCreationSection 
+            processingGem={processingGem}
+            setProcessingGem={setProcessingGem}
+            setProcessingHistory={setProcessingHistory}
+            setLastProcessingResult={setLastProcessingResult}
+            selectedProcessingGrade={selectedProcessingGrade}
+            setSelectedProcessingGrade={setSelectedProcessingGrade}
+          />
+        </div>
+      )}
       
       <div className="processing-sections">
-        <GemCreationSection 
-          processingGem={processingGem}
-          setProcessingGem={setProcessingGem}
-          setProcessingHistory={setProcessingHistory}
-          setLastProcessingResult={setLastProcessingResult}
-          selectedProcessingGrade={selectedProcessingGrade}
-          setSelectedProcessingGrade={setSelectedProcessingGrade}
-        />
         
         <ProcessingGemDisplay
           processingGem={processingGem}
@@ -115,12 +104,6 @@ function ProcessingTab() {
           setShowNormalizedProbability={setShowNormalizedProbability}
         />
       </div>
-      
-      {/* 목표 기반 시뮬레이션 섹션 */}
-      {/* GoalBasedSimulation 제거됨 - 파이썬 로컬 시뮬레이터로 대체 예정 */}
-      
-      {/* 배치 분석 섹션 - 개발 중 */}
-      {/* <BatchAnalyzer /> */}
     </div>
   );
 }

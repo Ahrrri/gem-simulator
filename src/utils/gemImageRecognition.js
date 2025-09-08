@@ -1,6 +1,54 @@
 // 젬 이미지 인식 유틸리티
 import Tesseract from 'tesseract.js';
 
+// OCR 결과를 젬 정보로 변환하는 함수
+export const convertOCRResultsToGem = (ocrResults) => {
+  try {
+    console.log('OCR 결과 변환 시작:', ocrResults);
+    
+    // 각 영역별 텍스트 추출
+    const gemOptions = [
+      ocrResults.gem_option_1?.text || '',
+      ocrResults.gem_option_2?.text || '',
+      ocrResults.gem_option_3?.text || '',
+      ocrResults.gem_option_4?.text || ''
+    ];
+    
+    const processingOptions = [
+      ocrResults.processing_option_1?.text || '',
+      ocrResults.processing_option_2?.text || '',
+      ocrResults.processing_option_3?.text || '',
+      ocrResults.processing_option_4?.text || ''
+    ];
+    
+    const processingCounts = ocrResults.processing_counts?.text || '';
+    const rerollButton = ocrResults.reroll_button?.text || '';
+    const costModifier = ocrResults.cost_modifier?.text || '';
+    
+    console.log('추출된 텍스트:', {
+      gemOptions,
+      processingOptions,
+      processingCounts,
+      rerollButton,
+      costModifier
+    });
+    
+    // TODO: 실제 젬 정보로 파싱하는 로직 구현
+    // 현재는 임시로 기본 젬 정보 반환
+    return {
+      // 임시 젬 정보
+      grade: 'RARE',
+      options: gemOptions.filter(opt => opt.trim() !== ''),
+      processingCount: 0,
+      costModifier: 0
+    };
+    
+  } catch (error) {
+    console.error('OCR 결과 변환 중 오류:', error);
+    return null;
+  }
+};
+
 // 젬 타입 매핑
 const GEM_TYPE_MAPPING = {
   '질서': 'ORDER',

@@ -10,7 +10,7 @@ function App() {
   return (
     <div className="App">
       <h1>🎮 로스트아크 젬 시뮬레이터</h1>
-      <div className="version-info">v2025.08.28 14:46</div>
+      <div className="version-info">v2025.09.08 11:57</div>
       
       {/* 탭 네비게이션 */}
       <div className="tab-navigation">

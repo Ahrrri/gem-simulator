@@ -1407,7 +1407,7 @@
 .comparison-table th.current-column,
 .comparison-table th.reroll-column,
 .comparison-table th.option-column {
-  width: 28%;
+  width: 21%;
 }
 
 .comparison-table td {
@@ -1639,6 +1639,84 @@
 
 .probability-checkbox input {
   margin: 0;
+}
+
+/* Gem Price Input */
+.gem-price-input {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.gem-price-input label {
+  color: #6c757d;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.gem-price-input input {
+  padding: 0.3rem 0.5rem;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  width: 80px;
+  text-align: right;
+}
+
+.gem-price-input input:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
+}
+
+.gem-price-input span {
+  color: #6c757d;
+  font-weight: 500;
+}
+
+/* Recommendation Column */
+.comparison-table th.recommendation-column {
+  width: 21%;
+  text-align: center;
+}
+
+.recommendation-cell {
+  padding: 8px;
+  text-align: center;
+  font-size: 0.85rem;
+}
+
+.recommendation-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+}
+
+.recommendation-text {
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.recommendation-text.continue {
+  background: rgba(40, 167, 69, 0.1);
+  color: #28a745;
+  border: 1px solid #28a745;
+}
+
+.recommendation-text.buy-new {
+  background: rgba(255, 193, 7, 0.1);
+  color: #856404;
+  border: 1px solid #ffc107;
+}
+
+.cost-comparison {
+  font-size: 0.75rem;
+  color: #6c757d;
+  line-height: 1.2;
 }
 
 /* Responsive layout for mobile */

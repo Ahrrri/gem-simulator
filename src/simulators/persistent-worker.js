@@ -23,7 +23,7 @@ const { grade, purchaseCost, goalKey, simulationsPerBatch } = workerData;
 
 
 // 단일 젬 가공 시뮬레이션 (지속 워커용)
-async function simulateGemProcessingPersistent(thresholdCostPerPercent) {
+async function simulateGemProcessingPersistent(thresholdCost) {
   let gem = createProcessingGem('CHAOS', 'EROSION', grade);
   let success = false;
   let abandoned = false;
@@ -73,30 +73,32 @@ async function simulateGemProcessingPersistent(thresholdCostPerPercent) {
         break; // 확률 계산 실패 시 종료
       }
       
-      // 평균 확률과 예상 비용 계산 (각 옵션 실행 후의 결과)
-      let totalProb = 0;
-      let totalExpectedCost = 0;
+      // 각 옵션별 계산 후 평균
+      const processingCost = 900 * (1 + (gem.costModifier || 0) / 100);
+      let totalCost = 0;
       let validOptions = 0;
       
       for (const option of optionsWithProb) {
         if (option.resultProbabilities?.[goalKey] && option.resultExpectedCosts?.[goalKey] !== undefined) {
-          const prob = parseFloat(option.resultProbabilities[goalKey].percent || 0);
+          const prob = parseFloat(option.resultProbabilities[goalKey].value || 0);
           const cost = option.resultExpectedCosts[goalKey];
           
           if (prob > 0 && cost < Infinity) {
-            totalProb += prob;
-            totalExpectedCost += cost;
+            const expectedCost = processingCost + cost + (1 - prob) * thresholdCost;
+            totalCost += expectedCost;
+            validOptions++;
+          }
+          else {
+            totalCost += processingCost + thresholdCost; // Use threshold cost as fallback for invalid options
             validOptions++;
           }
         }
       }
       
-      const avgProbability = validOptions > 0 ? totalProb / validOptions : 0;
-      const avgExpectedCost = validOptions > 0 ? totalExpectedCost / validOptions : Infinity;
-      const processingCost = 900 * (1 + (gem.costModifier || 0) / 100);
+      const avgExpectedCost = validOptions > 0 ? totalCost / validOptions : Infinity;
 
-      // 포기 판단: 평균예상비용/평균확률이 임계값보다 크면 포기
-      if (avgProbability > 0 && (processingCost + avgExpectedCost) / avgProbability > thresholdCostPerPercent) {
+      // 포기 판단: 평균 기댓값이 임계값보다 크면 포기
+      if (avgExpectedCost > thresholdCost) {
         // 포기하고 시뮬레이션 종료
         abandoned = true;
         break;
@@ -133,7 +135,7 @@ async function simulateGemProcessingPersistent(thresholdCostPerPercent) {
 }
 
 // 배치 시뮬레이션 실행
-async function runBatchSimulation(thresholdCostPerPercent, numSimulations) {
+async function runBatchSimulation(thresholdCost, numSimulations) {
   let totalCost = 0;
   let successCount = 0;
   let abandonedCount = 0;
@@ -148,7 +150,7 @@ async function runBatchSimulation(thresholdCostPerPercent, numSimulations) {
   const progressInterval = Math.max(1, Math.floor(numSimulations / 100)); // 1% 간격으로 진행 상황 보고
   
   for (let i = 0; i < numSimulations; i++) {
-    const result = await simulateGemProcessingPersistent(thresholdCostPerPercent);
+    const result = await simulateGemProcessingPersistent(thresholdCost);
     
     // 성공/실패와 관계없이 모든 비용을 누적
     totalCost += result.totalCost;
@@ -197,9 +199,9 @@ async function runBatchSimulation(thresholdCostPerPercent, numSimulations) {
 parentPort.on('message', async (message) => {
   try {
     if (message.type === 'simulate') {
-      const { thresholdCostPerPercent, numSimulations } = message;
+      const { thresholdCost, numSimulations } = message;
       
-      const result = await runBatchSimulation(thresholdCostPerPercent, numSimulations);
+      const result = await runBatchSimulation(thresholdCost, numSimulations);
       
       parentPort.postMessage({
         type: 'result',

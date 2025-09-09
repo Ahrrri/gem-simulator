@@ -41,6 +41,9 @@ function ProcessingGemDisplay({
   const [showChangeTargets, setShowChangeTargets] = useState(false);
   const [selectedChangeOption, setSelectedChangeOption] = useState(null);
   const [selectedTargetOption, setSelectedTargetOption] = useState(null);
+  const [gemPrice, setGemPrice] = useState(null);
+  const [initialProbabilities, setInitialProbabilities] = useState(null); // 젬 초기 상태의 확률 정보
+  const [initialGemStats, setInitialGemStats] = useState(null); // 젬 초기 상태의 목표별 확률과 예상비용
 
   // 현재 사용할 옵션 세트 계산
   const getCurrentOptionSet = () => {
@@ -64,6 +67,38 @@ function ProcessingGemDisplay({
         console.error('❌ API 서버 연결 실패:', error);
       });
   }, []);
+
+  // 젬이 새로 설정될 때 초기 확률 정보 저장
+  useEffect(() => {
+    if (processingGem && currentProbabilities && !initialProbabilities) {
+      setInitialProbabilities(currentProbabilities);
+    }
+  }, [processingGem, currentProbabilities]);
+
+  // 젬이 새로 설정되거나 젬 가격이 변동될 때 초기 통계 계산
+  useEffect(() => {
+    if (processingGem && gemPrice && initialProbabilities) {
+      const stats = {};
+      const targets = ['5/5', '5/4', '4/5', '5/3', '4/4', '3/5', 'sum8+', 'sum9+', 'relic+', 'ancient+', 'dealer_complete', 'support_complete'];
+      
+      for (const target of targets) {
+        const currentProb = parseFloat(initialProbabilities[target]?.value || 0);
+        
+        if (currentProb > 0) {
+          // initialProbabilities에서 해당 목표의 예상 비용 가져오기
+          const expectedCost = initialProbabilities?.expectedCosts?.[target] || 0;
+          
+          // 기준치: (젬 가격 + 예상 비용) / 현재 확률
+          stats[target] = {
+            baseThreshold: (gemPrice + expectedCost) / currentProb,
+            expectedCost,
+            currentProbability: currentProb
+          };
+        }
+      }
+      setInitialGemStats(stats);
+    }
+  }, [gemPrice, initialProbabilities]);
 
   // 젬 변경, 토글 상태, 옵션 세트 변경에 따른 확률 조회
   useEffect(() => {
@@ -274,6 +309,59 @@ function ProcessingGemDisplay({
     return '전설';
   };
 
+
+  // 처리 계속 vs 새 젬 구매 권장사항
+  const getProcessingRecommendation = (target) => {
+    if (!initialGemStats?.[target] || !optionProbabilities) {
+      return null;
+    }
+    
+    // 각 옵션별로 %당 비용 계산 후 평균
+    const processingCost = 900 * (1 + (processingGem.costModifier || 0) / 100);
+    
+    const validExpectedCosts = [];
+    
+    for (const option of optionProbabilities) {
+      if (option.resultProbabilities?.[target] && option.resultExpectedCosts?.[target] !== undefined) {
+        const prob = parseFloat(option.resultProbabilities[target].value || 0);
+        const cost = option.resultExpectedCosts[target];
+        
+        if (prob > 0 && cost < Infinity) {
+          const expectedCost = processingCost + cost + (1 - prob) * initialGemStats[target].baseThreshold;
+          validExpectedCosts.push(expectedCost);
+        } else {
+          const expectedCost = processingCost + initialGemStats[target].baseThreshold;
+          validExpectedCosts.push(expectedCost);
+        }
+      }
+    }
+    if (validExpectedCosts.length === 0) {
+      return null;
+    }
+    
+    // 기댓값들의 평균
+    const currentExpectedCost = validExpectedCosts.reduce((sum, cost) => sum + cost, 0) / validExpectedCosts.length;
+    
+    // 기준치 (초기 젬 구매 시의 %당 비용)
+    const baseThreshold = initialGemStats[target].baseThreshold;
+    
+    if (currentExpectedCost < baseThreshold) {
+      return { 
+        recommendation: 'continue_processing', 
+        reason: '가공이 더 효율적',
+        currentExpectedCost,
+        baseThreshold
+      };
+    } else {
+      return { 
+        recommendation: 'buy_new', 
+        reason: '새 젬 구매가 더 효율적',
+        currentExpectedCost,
+        baseThreshold
+      };
+    }
+  };
+
   // 확률 목표 표시용 라벨
   const getTargetDisplayLabel = (target) => {
     const targetLabels = {
@@ -467,7 +555,7 @@ function ProcessingGemDisplay({
                       setShowNormalizedProbability(e.target.checked);
                     }}
                   />
-                  총합 400 기준 가중치
+                  총합 400 기준 가중치 표시
                   <span 
                     className="grade-tooltip" 
                     title="가중치 합이 400이 되도록 정규화한 값"
@@ -995,6 +1083,8 @@ function ProcessingGemDisplay({
               className="btn btn-reset"
               onClick={() => {
                 setProcessingGem(null);
+                setInitialProbabilities(null);
+                setInitialGemStats(null);
                 setProcessingHistory([]);
                 setLastProcessingResult(null);
               }}
@@ -1031,7 +1121,21 @@ function ProcessingGemDisplay({
         {serverStatus === 'connected' && (
           <div className="target-probabilities-section">
           <div className="probability-header">
-            <h4>목표 달성 확률 비교 (백엔드 API)</h4>
+            <h4>목표 달성 확률</h4>
+            <div className="gem-price-input">
+              <label htmlFor="gemPrice">젬 가격:</label>
+              <input 
+                id="gemPrice"
+                type="number" 
+                value={gemPrice || ''}
+                onChange={(e) => setGemPrice(e.target.value ? parseInt(e.target.value) : null)}
+                placeholder="골드"
+                min="0"
+                max="500000"
+                step="100"
+              />
+              <span>G</span>
+            </div>
           </div>
           
           {/* 확률 비교 테이블 */}
@@ -1043,6 +1147,7 @@ function ProcessingGemDisplay({
                   <th className="option-column">현재 옵션 기반</th>
                   <th className="reroll-column">리롤 시</th>
                   <th className="current-column">현재 젬 평균</th>
+                  <th className="recommendation-column">권장사항</th>
                 </tr>
               </thead>
               <tbody>
@@ -1117,7 +1222,7 @@ function ProcessingGemDisplay({
                                   각 옵션별 {currentProbabilities?.[target]?.label || target} 확률 및 이후 예상 비용
                                   {percentileText && (
                                     <div style={{ color: '#4CAF50', marginTop: '4px' }}>
-                                      이 옵션 세트의 밸류: {percentileText}
+                                      이 옵션 세트의 백분위: {percentileText}
                                     </div>
                                   )}
                                 </div>
@@ -1181,6 +1286,32 @@ function ProcessingGemDisplay({
                         ) : (
                           <span className="prob-unavailable">-</span>
                         )}
+                      </td>
+                      <td className="recommendation-cell">
+                        {(() => {
+                          if (isLoadingProbabilities) {
+                            return <span className="prob-loading">계산 중...</span>;
+                          }
+                          
+                          const recommendation = getProcessingRecommendation(target);
+                          if (!recommendation) {
+                            return <span className="prob-unavailable"></span>;
+                          }
+                          
+                          return (
+                            <div className="recommendation-content">
+                              <div className={`recommendation-text ${recommendation.recommendation === 'continue_processing' ? 'continue' : 'buy-new'}`}
+                                   title={recommendation.currentExpectedCost !== undefined ? 
+                                     `현재: ${Math.round(recommendation.currentExpectedCost).toLocaleString()}G vs 기준: ${Math.round(recommendation.baseThreshold).toLocaleString()}G` : 
+                                     ''}>
+                                {recommendation.recommendation === 'continue_processing' ? 
+                                  '가공 계속' : 
+                                  '새 젬 구매'
+                                }
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </td>
                     </tr>
                   );

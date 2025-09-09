@@ -71,18 +71,22 @@ function ProcessingGemDisplay({
       if (isManualOptionSampling) {
         const manualSet = processingGem.manualOptionSet || [];
         if (manualSet.length === 4) {
-          handleLoadCurrentProbabilities();
-          handleLoadOptionProbabilities();
-          handleLoadRerollProbabilities();
+          Promise.all([
+            handleLoadCurrentProbabilities(),
+            handleLoadOptionProbabilities(),
+            handleLoadRerollProbabilities()
+          ]);
         } else {
           // 4개 미만이면 확률 초기화
           setOptionProbabilities(null);
         }
       } else {
         // 자동 모드에서는 항상 확률 조회
-        handleLoadCurrentProbabilities();
-        handleLoadOptionProbabilities();
-        handleLoadRerollProbabilities();
+        Promise.all([
+          handleLoadCurrentProbabilities(),
+          handleLoadOptionProbabilities(),
+          handleLoadRerollProbabilities()
+        ]);
       }
     } else {
       setCurrentProbabilities(null);
@@ -139,7 +143,7 @@ function ProcessingGemDisplay({
 
 
   // _change 옵션의 가능한 대상 옵션들 찾기
-  const getAvailableChangeTargets = (fromOption) => {
+  const getAvailableChangeTargets = () => {
     if (!processingGem) return [];
     
     const currentOptions = ['dealerA', 'dealerB', 'supportA', 'supportB'];
@@ -222,9 +226,11 @@ function ProcessingGemDisplay({
       console.log('✅ API 서버 연결 새로고침 성공');
       
       if (processingGem) {
-        await handleLoadCurrentProbabilities();
-        await handleLoadOptionProbabilities();
-        await handleLoadRerollProbabilities();
+        await Promise.all([
+          handleLoadCurrentProbabilities(),
+          handleLoadOptionProbabilities(),
+          handleLoadRerollProbabilities()
+        ]);
       }
     } catch (error) {
       setServerStatus('error');
@@ -977,6 +983,7 @@ function ProcessingGemDisplay({
                 );
                 setProcessingGem(resetGem);
                 setProcessingHistory([resetGem]);
+                setSelectedOptionIndex(null);
                 setLastProcessingResult(null);
                 setSelectedHistoryIndex(0);
               }}

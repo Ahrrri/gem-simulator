@@ -28,7 +28,7 @@ const probabilityCache = new Map(); // 확률 캐시
 let MAX_REROLL = 2; // 기본값
 
 try {
-  const dbPath = path.join(__dirname, '../../probability_table_reroll_2.db');
+  const dbPath = path.join(__dirname, '../../probability_table_reroll_7.db');
   
   // 파일명에서 리롤 횟수 추출
   const rerollMatch = dbPath.match(/reroll_(\d+)\.db/);
@@ -1271,7 +1271,7 @@ const main = async () => {
     }
     
     // 목표 시뮬레이션
-    const result = await runSimulation('ORDER', 'STABLE', 'HEROIC', goalKey, { simulationRuns });
+    const result = await runSimulation('ORDER', 'STABLE', 'UNCOMMON', goalKey, { simulationRuns });
     
     console.log('\n🎯 결과:');
     console.log(`성공률: ${result.successRate.toFixed(1)}% (${result.successCount}/${result.simulationRuns})`);

@@ -8,7 +8,8 @@ function GemCreationSection({
   setProcessingHistory,
   setLastProcessingResult,
   selectedProcessingGrade,
-  setSelectedProcessingGrade
+  setSelectedProcessingGrade,
+  setSelectedHistoryIndex
 }) {
   const [selectedGemType, setSelectedGemType] = useState(null);
   const [showCombinationSelection, setShowCombinationSelection] = useState(false);
@@ -54,6 +55,7 @@ function GemCreationSection({
     setProcessingGem(newGem);
     setProcessingHistory([newGem]);
     setLastProcessingResult(null);
+    setSelectedHistoryIndex(0);
     
     // 상태 초기화
     setSelectedGemType(null);
@@ -69,6 +71,7 @@ function GemCreationSection({
     setProcessingGem(newGem);
     setProcessingHistory([newGem]);
     setLastProcessingResult(null);
+    setSelectedHistoryIndex(0);
     
     // 상태 초기화
     setSelectedGemType(null);

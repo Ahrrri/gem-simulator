@@ -27,7 +27,9 @@ function ProcessingGemDisplay({
   showDisplayProbability,
   setShowDisplayProbability,
   showNormalizedProbability,
-  setShowNormalizedProbability
+  setShowNormalizedProbability,
+  selectedHistoryIndex,
+  setSelectedHistoryIndex
 }) {
   const [serverStatus, setServerStatus] = useState('disconnected');
   const [currentProbabilities, setCurrentProbabilities] = useState(null);
@@ -36,7 +38,6 @@ function ProcessingGemDisplay({
   const [isLoadingProbabilities, setIsLoadingProbabilities] = useState(false);
   const [isManualOptionSampling, setIsManualOptionSampling] = useState(false);
   const [selectedOptionIndex, setSelectedOptionIndex] = useState(null);
-  const [selectedHistoryIndex, setSelectedHistoryIndex] = useState(null);
   const [showChangeTargets, setShowChangeTargets] = useState(false);
   const [selectedChangeOption, setSelectedChangeOption] = useState(null);
   const [selectedTargetOption, setSelectedTargetOption] = useState(null);
@@ -1078,7 +1079,7 @@ function ProcessingGemDisplay({
                             break;
                           }
                         }
-                        percentileText = ` (상위 ${foundPercentile}%)`;
+                        percentileText = ` 상위 ${foundPercentile}%`;
                       }
                     }
                   }
@@ -1114,7 +1115,11 @@ function ProcessingGemDisplay({
                               <div className="prob-tooltip">
                                 <div className="tooltip-title">
                                   각 옵션별 {currentProbabilities?.[target]?.label || target} 확률 및 예상 비용
-                                  {percentileText && <span style={{ color: '#4CAF50', marginLeft: '8px' }}>{percentileText}</span>}
+                                  {percentileText && (
+                                    <div style={{ color: '#4CAF50', marginTop: '4px' }}>
+                                      이 옵션 세트의 밸류: {percentileText}
+                                    </div>
+                                  )}
                                 </div>
                                 {optionProbabilities.map((option, idx) => {
                                   const optionTargetProb = option.resultProbabilities ? 

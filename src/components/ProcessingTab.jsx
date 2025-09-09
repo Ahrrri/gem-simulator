@@ -20,6 +20,9 @@ function ProcessingTab() {
   // 젬 생성 방식 상태 (auto: OCR 자동 생성, manual: 수동 입력)
   const [gemCreationMode, setGemCreationMode] = useState('auto');
   
+  // 히스토리 선택 인덱스 상태
+  const [selectedHistoryIndex, setSelectedHistoryIndex] = useState(null);
+  
 
   // 이미지 캡처 후 젬 정보 인식 처리
   const handleImageCaptured = async (ocrResults) => {
@@ -81,6 +84,7 @@ function ProcessingTab() {
             setLastProcessingResult={setLastProcessingResult}
             selectedProcessingGrade={selectedProcessingGrade}
             setSelectedProcessingGrade={setSelectedProcessingGrade}
+            setSelectedHistoryIndex={setSelectedHistoryIndex}
           />
         </div>
       )}
@@ -102,6 +106,8 @@ function ProcessingTab() {
           setShowDisplayProbability={setShowDisplayProbability}
           showNormalizedProbability={showNormalizedProbability}
           setShowNormalizedProbability={setShowNormalizedProbability}
+          selectedHistoryIndex={selectedHistoryIndex}
+          setSelectedHistoryIndex={setSelectedHistoryIndex}
         />
       </div>
     </div>

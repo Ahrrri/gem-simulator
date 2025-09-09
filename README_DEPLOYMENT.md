@@ -6,7 +6,7 @@
 1. GitHub 저장소 → Settings → Secrets and variables → Actions
 2. "New repository secret" 클릭
 3. 다음 시크릿 추가:
-   - Name: `REACT_APP_API_URL`
+   - Name: `VITE_API_URL`
    - Value: `https://your-actual-backend-url.com` (실제 백엔드 서버 URL)
 
 ### 2. 환경 변수 설정 방법
@@ -14,19 +14,19 @@
 #### 로컬 개발
 ```bash
 # .env 파일 (git에 포함되지 않음)
-REACT_APP_API_URL=http://localhost:3001
+VITE_API_URL=http://localhost:3001
 ```
 
 #### GitHub Pages (자동 배포)
 - `.github/workflows/deploy.yml`에서 GitHub Secrets 사용
-- GitHub Secrets에서 `REACT_APP_API_URL` 값 관리
+- GitHub Secrets에서 `VITE_API_URL` 값 관리
 - `.env.production` 파일 불필요 (GitHub Actions가 직접 주입)
 
 #### 다른 플랫폼 배포 시
 ```bash
 # Vercel, Netlify 등은 각 플랫폼 대시보드에서 환경 변수 설정
 # 또는 빌드 시 직접 설정:
-REACT_APP_API_URL=https://api.example.com npm run build
+VITE_API_URL=https://api.example.com npm run build
 ```
 
 ### 3. 백엔드 서버 요구사항
@@ -45,7 +45,7 @@ app.use(cors({
 1. 브라우저 개발자 도구 → Console
 2. 다음 입력:
    ```javascript
-   console.log(process.env.REACT_APP_API_URL)
+   console.log(import.meta.env.VITE_API_URL)
    ```
 3. 올바른 URL이 출력되는지 확인
 

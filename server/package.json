@@ -5,7 +5,8 @@
   "main": "server.js",
   "type": "module",
   "scripts": {
-    "start": "node server.js",
+    "start": "PORT=9757 node server.js",
+    "start:3001": "PORT=3001 node server.js",
     "dev": "nodemon server.js"
   },
   "dependencies": {

@@ -1225,7 +1225,7 @@ function ProcessingGemDisplay({
                               {/* 호버 툴팁 - 각 옵션별 확률 및 비용 표시 */}
                               <div className="prob-tooltip">
                                 <div className="tooltip-title">
-                                  각 옵션 별 {currentData.probabilities?.[target]?.label || target} 확률 및 이후 예상 비용
+                                  각 옵션 별 {currentData?.probabilities?.[target]?.label || target} 확률 및 이후 예상 비용
                                   {percentileText && (
                                     <div style={{ color: '#4CAF50', marginTop: '4px' }}>
                                       이 옵션 세트의 백분위: {percentileText}

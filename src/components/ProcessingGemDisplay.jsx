@@ -12,6 +12,9 @@ import {
   checkServerHealth,
   getAllGemData
 } from '../utils/apiClient';
+
+// API URL 가져오기 (환경변수 기반)
+const API_BASE_URL = (typeof import.meta.env !== 'undefined' && import.meta.env.VITE_API_URL) || 'http://localhost:3001';
 import { useState, useEffect } from 'react';
 
 function ProcessingGemDisplay({
@@ -96,6 +99,9 @@ function ProcessingGemDisplay({
       }
       setInitialGemStats(stats);
     }
+    else {
+      setInitialGemStats(null);
+    }
   }, [gemPrice, initialProbabilities]);
 
   // 젬의 핵심 상태나 서버 상태 변경 시 API 호출
@@ -175,6 +181,44 @@ function ProcessingGemDisplay({
     const currentOptions = getCurrentOptionSet();
     const formattedOptions = [];
     
+    // 각 타겟별 확률 비교 정보 계산
+    const targets = ['5/5', '5/4', '4/5', '5/3', '4/4', '3/5', 'sum8+', 'sum9+', 'relic+', 'ancient+', 'dealer_complete', 'support_complete'];
+    const targetComparisons = {};
+    
+    for (const target of targets) {
+      // 옵션별 확률 평균 계산
+      const validProbs = [];
+      for (const currentOption of currentOptions) {
+        const matchedOption = data.options.find(opt => opt.action === currentOption.action);
+        if (matchedOption?.probabilities?.[target]) {
+          const prob = parseFloat(matchedOption.probabilities[target].percent || '0.0');
+          if (!isNaN(prob)) {
+            validProbs.push(prob);
+          }
+        }
+      }
+      
+      const avgOptionProb = validProbs.length > 0 ? validProbs.reduce((sum, p) => sum + p, 0) / validProbs.length : 0;
+      
+      // 리롤 확률
+      const rerollProb = parseFloat(data.reroll?.probabilities?.[target]?.percent || '0.0');
+      
+      // 비교 결과
+      let isOptionBetter = true;
+      let isRerollBetter = false;
+      if (avgOptionProb < rerollProb && processingGem?.currentRerollAttempts > 0 && processingGem?.processingCount > 0) {
+        isOptionBetter = false;
+        isRerollBetter = true;
+      }
+      
+      targetComparisons[target] = {
+        avgOptionProb,
+        rerollProb,
+        isOptionBetter,
+        isRerollBetter
+      };
+    }
+    
     for (const currentOption of currentOptions) {
       const matchedOption = data.options.find(opt => opt.action === currentOption.action);
       if (matchedOption) {
@@ -182,7 +226,8 @@ function ProcessingGemDisplay({
           action: matchedOption.action,
           description: getActionDescription(matchedOption.action),
           resultProbabilities: matchedOption.probabilities,
-          resultExpectedCosts: matchedOption.expectedCosts || {}
+          resultExpectedCosts: matchedOption.expectedCosts || {},
+          targetComparisons
         });
       }
     }
@@ -319,7 +364,7 @@ function ProcessingGemDisplay({
 
 
   // 처리 계속 vs 새 젬 구매 권장사항
-  const getProcessingRecommendation = (target) => {
+  const getProcessingRecommendation = (target, isRerollBetter = false) => {
     if (!initialGemStats?.[target] || !optionData) {
       return null;
     }
@@ -328,13 +373,16 @@ function ProcessingGemDisplay({
     const processingCost = 900 * (1 + (processingGem.costModifier || 0) / 100);
     
     const validExpectedCosts = [];
+    const validExpectedProfits = [];
     for (const option of optionData) {
       if (option.resultProbabilities?.[target] && option.resultExpectedCosts?.[target] !== undefined) {
         const prob = parseFloat(option.resultProbabilities[target].value || 0);
         const cost = option.resultExpectedCosts[target];
         
-        const expectedCost = processingCost + cost + (1 - prob) * initialGemStats[target].baseThreshold;
+        const expectedCost = processingCost + cost;
+        const expectedProfit = prob * initialGemStats[target].baseThreshold;
         validExpectedCosts.push(expectedCost);
+        validExpectedProfits.push(expectedProfit);
       }
     }
     if (validExpectedCosts.length === 0) {
@@ -343,24 +391,44 @@ function ProcessingGemDisplay({
     
     // 기댓값들의 평균
     const currentExpectedCost = validExpectedCosts.reduce((sum, cost) => sum + cost, 0) / validExpectedCosts.length;
+    const currentExpectedProfit = validExpectedProfits.reduce((sum, cost) => sum + cost, 0) / validExpectedProfits.length;
     
-    // 기준치 (초기 젬 구매 시의 %당 비용)
-    const baseThreshold = initialGemStats[target].baseThreshold;
-    
-    if (currentExpectedCost < baseThreshold) {
-      return { 
-        recommendation: 'continue_processing', 
-        reason: '가공이 더 효율적',
-        currentExpectedCost,
-        baseThreshold
-      };
+    const canReroll = processingGem?.currentRerollAttempts > 0 && processingGem?.processingCount > 0;
+        
+    if (currentExpectedCost < currentExpectedProfit) {
+      // 가공이 더 효율적인 경우: isRerollBetter에 따라 결정
+      if (isRerollBetter && canReroll) {
+        return {
+          recommendation: 'reroll_better',
+          reason: '리롤 후 가공이 더 효율적',
+          currentExpectedCost,
+          currentExpectedProfit
+        };
+      } else {
+        return { 
+          recommendation: 'continue_processing', 
+          reason: '가공이 더 효율적',
+          currentExpectedCost,
+          currentExpectedProfit
+        };
+      }
     } else {
-      return { 
-        recommendation: 'buy_new', 
-        reason: '새 젬 구매가 더 효율적',
-        currentExpectedCost,
-        baseThreshold
-      };
+      // 새 젬 구매가 더 효율적인 경우: 리롤 가능하면 리롤 시도
+      if (canReroll) {
+        return {
+          recommendation: 'reroll_better',
+          reason: '리롤 시도 후 판단',
+          currentExpectedCost,
+          currentExpectedProfit
+        };
+      } else {
+        return { 
+          recommendation: 'buy_new', 
+          reason: '새 젬 구매가 더 효율적',
+          currentExpectedCost,
+          currentExpectedProfit
+        };
+      }
     }
   };
 
@@ -431,7 +499,7 @@ function ProcessingGemDisplay({
         {serverStatus === 'error' && (
           <div className="error-message">
             <p>❌ API 서버에 연결할 수 없습니다.</p>
-            <p>서버가 실행 중인지 확인해주세요. (http://localhost:3001)</p>
+            <p>서버가 실행 중인지 확인해주세요. (혹은, 최초 접속시 SSL 인증서 이슈로 인해 <a href={`${API_BASE_URL}/health`} target="_blank" rel="noopener noreferrer">여기</a>를 클릭해 한 번 접속해 주세요.)</p>
           </div>
         )}
 
@@ -1149,7 +1217,7 @@ function ProcessingGemDisplay({
                   <th className="option-column">현재 옵션 기반</th>
                   <th className="reroll-column">리롤 시</th>
                   <th className="current-column">현재 젬 평균</th>
-                  <th className="recommendation-column">권장사항</th>
+                  <th className="recommendation-column">추천</th>
                 </tr>
               </thead>
               <tbody>
@@ -1158,53 +1226,30 @@ function ProcessingGemDisplay({
                   // 현재 젬 상태 확률
                   const currentProb = currentData?.probabilities[target]?.percent || '0.0';
                   
-                  // 현재 옵션으로 가공 확률 (4개 옵션의 평균)
-                  let optionProb = '0.0';
-                  let percentileText = '';
+                  // 미리 계산된 비교 정보 가져오기
+                  const comparison = optionData?.[0]?.targetComparisons?.[target];
+                  const optionProb = comparison ? comparison.avgOptionProb.toFixed(4) : '0.0';
+                  const rerollProb = comparison ? comparison.rerollProb.toFixed(4) : '0.0';
+                  const isOptionBetter = comparison ? comparison.isOptionBetter : true;
+                  const isRerollBetter = comparison ? comparison.isRerollBetter : false;
                   
-                  if (optionData && optionData.length > 0) {
-                    const validProbs = optionData
-                      .map(opt => opt.resultProbabilities ? opt.resultProbabilities?.[target]?.percent || '0.0' : '0.0')
-                      .map(p => parseFloat(p))
-                      .filter(p => !isNaN(p));
+                  // percentile 정보 찾기
+                  let percentileText = '';
+                  if (comparison && currentData?.percentiles?.[target]) {
+                    const currentProbDecimal = comparison.avgOptionProb / 100;
+                    const percentiles = currentData.percentiles[target];
                     
-                    if (validProbs.length > 0) {
-                      const avgProb = validProbs.reduce((sum, p) => sum + p, 0) / validProbs.length;
-                      optionProb = avgProb.toFixed(4);
-                      
-                      // percentile 정보 찾기
-                      if (currentData?.percentiles?.[target]) {
-                        const currentProbDecimal = avgProb / 100;
-                        const percentiles = currentData.percentiles[target];
-                        
-                        // 현재 확률이 어느 percentile에 해당하는지 찾기
-                        let foundPercentile = 100;
-                        for (let p = 90; p >= 10; p -= 10) {
-                          if (percentiles[p] && currentProbDecimal >= percentiles[p]) {
-                            foundPercentile = p;
-                          } else {
-                            break;
-                          }
-                        }
-                        percentileText = ` 상위 ${foundPercentile}%`;
+                    // 현재 확률이 어느 percentile에 해당하는지 찾기
+                    let foundPercentile = 100;
+                    for (let p = 90; p >= 10; p -= 10) {
+                      if (percentiles[p] && currentProbDecimal >= percentiles[p]) {
+                        foundPercentile = p;
+                      } else {
+                        break;
                       }
                     }
+                    percentileText = ` 상위 ${foundPercentile}%`;
                   }
-                  
-                  // 리롤 후 가공 확률
-                  let rerollProb = '0.0';
-                  if (rerollData && rerollData.probabilities[target]) {
-                    rerollProb = rerollData.probabilities[target].percent;
-                  }
-                  
-                  // 확률 비교 계산
-                  const optionProbNum = parseFloat(optionProb);
-                  const rerollProbNum = parseFloat(rerollProb);
-                  let isOptionBetter = true;
-                  if (optionProbNum < rerollProbNum && processingGem.currentRerollAttempts > 0 && processingGem.processingCount > 0) {
-                    isOptionBetter = false;
-                  }
-                  const isRerollBetter = rerollProbNum > optionProbNum && rerollProbNum > 0;
                   
                   return (
                     <tr key={target}>
@@ -1213,13 +1258,13 @@ function ProcessingGemDisplay({
                       </td>
                       <td className="prob-cell">
                         {isLoadingData ? (
-                          <span className="prob-unavailable">계산 중...</span>
+                          <span className="prob-unavailable">로드 중...</span>
                         ) : optionData ? (
                           <div className="prob-content">
                             <div className="prob-main has-details">
                               <span className={`prob-value ${isOptionBetter ? 'better' : ''}`}>
                                 {optionProb}%
-                                {isOptionBetter && rerollProbNum > 0 && <span className="better-indicator">↑</span>}
+                                {isOptionBetter && parseFloat(rerollProb) > 0 && <span className="better-indicator">↑</span>}
                               </span>
                               
                               {/* 호버 툴팁 - 각 옵션별 확률 및 비용 표시 */}
@@ -1268,7 +1313,7 @@ function ProcessingGemDisplay({
                       </td>
                       <td className="prob-cell">
                         {isLoadingData ? (
-                          <span className="prob-unavailable">계산 중...</span>
+                          <span className="prob-unavailable">로드 중...</span>
                         ) : processingGem && processingGem.currentRerollAttempts > 0 && processingGem.processingCount > 0 ? (
                           rerollData ? (
                             <span className={`prob-value ${isRerollBetter ? 'better' : ''}`}>
@@ -1286,7 +1331,7 @@ function ProcessingGemDisplay({
                       </td>
                       <td className="prob-cell">
                         {isLoadingData ? (
-                          <span className="prob-unavailable">계산 중...</span>
+                          <span className="prob-unavailable">로드 중...</span>
                         ) : currentData ? (
                           <span className="prob-value">{currentProb}%</span>
                         ) : (
@@ -1296,23 +1341,28 @@ function ProcessingGemDisplay({
                       <td className="recommendation-cell">
                         {(() => {
                           if (isLoadingData) {
-                            return <span className="prob-loading">계산 중...</span>;
+                            return <span className="prob-loading">로드 중...</span>;
                           }
                           
-                          const recommendation = getProcessingRecommendation(target);
+                          const recommendation = getProcessingRecommendation(target, isRerollBetter);
                           if (!recommendation) {
-                            return <span className="prob-unavailable"></span>;
+                            return <span className="prob-unavailable">젬 가격 입력</span>;
                           }
                           
                           return (
                             <div className="recommendation-content">
-                              <div className={`recommendation-text ${recommendation.recommendation === 'continue_processing' ? 'continue' : 'buy-new'}`}
+                              <div className={`recommendation-text ${
+                                recommendation.recommendation === 'continue_processing' ? 'continue' : 
+                                recommendation.recommendation === 'reroll_better' ? 'reroll' : 'buy-new'
+                              }`}
                                    title={recommendation.currentExpectedCost !== undefined ? 
-                                     `현재: ${Math.round(recommendation.currentExpectedCost).toLocaleString()}G vs 기준: ${Math.round(recommendation.baseThreshold).toLocaleString()}G` : 
+                                     `기대 이득: ${Math.round(recommendation.currentExpectedProfit).toLocaleString()}G vs 기대 비용: ${Math.round(recommendation.currentExpectedCost).toLocaleString()}G` : 
                                      ''}>
                                 {recommendation.recommendation === 'continue_processing' ? 
-                                  '가공 계속' : 
-                                  '새 젬 구매'
+                                  '가공' : 
+                                  recommendation.recommendation === 'reroll_better' ?
+                                  '리롤' :
+                                  'GG'
                                 }
                               </div>
                             </div>

@@ -66,10 +66,10 @@
   gap: 10px;
 }
 
-/* Processing Gem Section - Two Column Layout */
+/* Processing Gem Section - Responsive Layout */
 .processing-gem-section {
   display: grid;
-  grid-template-columns: 2fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(800px, 1fr));
   gap: 1.5rem;
   align-items: start;
 }
@@ -77,7 +77,7 @@
 .processing-left-column {
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  gap: 1rem;
 }
 
 .processing-right-column {
@@ -90,8 +90,8 @@
 
 .processing-layout {
   display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 1.5rem;
+  grid-template-columns: auto auto;
+  gap: 1rem;
   align-items: start;
 }
 
@@ -616,17 +616,17 @@
 
 .options-row {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 0.2rem;
 }
 
 .option-category {
+  flex: 1;
   border-radius: 6px;
   overflow: hidden;
   background: white;
   border: 1px solid #e9ecef;
-  width: 180px;
-  min-width: 180px;
+  min-width: 175px;
 }
 
 .category-title {
@@ -655,7 +655,6 @@
   border-radius: 4px;
   font-size: 0.7rem;
   height: 20px;
-  width: 158px;
 }
 
 .compact-option.available {
@@ -1407,7 +1406,7 @@
 .comparison-table th.current-column,
 .comparison-table th.reroll-column,
 .comparison-table th.option-column {
-  width: 21%;
+  width: 23%;
 }
 
 .comparison-table td {
@@ -1684,7 +1683,7 @@
 
 /* Recommendation Column */
 .comparison-table th.recommendation-column {
-  width: 21%;
+  width: 15%;
   text-align: center;
 }
 
@@ -1720,6 +1719,12 @@
   border: 1px solid #ffc107;
 }
 
+.recommendation-text.reroll {
+  background: rgba(0, 123, 255, 0.1);
+  color: #0056b3;
+  border: 1px solid #007bff;
+}
+
 .cost-comparison {
   font-size: 0.75rem;
   color: #6c757d;
@@ -1729,7 +1734,6 @@
 /* Responsive layout for mobile */
 @media (max-width: 768px) {
   .processing-gem-section {
-    grid-template-columns: 1fr;
     gap: 1rem;
   }
   

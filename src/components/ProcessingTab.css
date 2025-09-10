@@ -4,6 +4,7 @@
 .processing-tab {
   padding: 20px;
   margin: 0 auto;
+  min-width: 800px;
 }
 
 .gem-creation-mode-selector {

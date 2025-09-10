@@ -54,9 +54,52 @@ export async function checkServerHealth() {
 }
 
 /**
+ * 통합 확률 조회 - 현재, 리롤, 모든 옵션의 확률을 한 번에
+ */
+export async function getAllGemData(gemState) {
+  const params = [
+    gemState.willpower || 0,
+    gemState.corePoint || 0,
+    gemState.dealerA || 0,
+    gemState.dealerB || 0,
+    gemState.supportA || 0,
+    gemState.supportB || 0,
+    gemState.remainingAttempts || 0,
+    gemState.currentRerollAttempts || 0,
+    gemState.costModifier || 0,
+    gemState.isFirstProcessing || 0
+  ].join('_');
+  
+  const response = await fetch(`${API_BASE_URL}/api/gem-all-probabilities?s=${params}`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch all probabilities: ${response.statusText}`);
+  }
+  
+  const result = await response.json();
+  
+  // 각 상태의 확률 데이터를 포맷
+  if (result.current?.probabilities) {
+    result.current.probabilities = formatProbabilities(result.current.probabilities);
+  }
+  
+  if (result.reroll?.probabilities) {
+    result.reroll.probabilities = formatProbabilities(result.reroll.probabilities);
+  }
+  
+  if (result.options) {
+    result.options = result.options.map(option => ({
+      ...option,
+      probabilities: formatProbabilities(option.probabilities)
+    }));
+  }
+  
+  return result;
+}
+
+/**
  * 젬 상태별 확률 조회 (포맷된 결과 반환)
  */
-export async function getGemProbabilities(gemState) {
+export async function getGemData(gemState) {
   // 압축된 형식 사용: s=willpower_corePoint_dealerA_dealerB_supportA_supportB_remainingAttempts_currentRerollAttempts_costModifier_isFirstProcessing
   const values = [
     gemState.willpower,
@@ -76,7 +119,7 @@ export async function getGemProbabilities(gemState) {
   });
 
   const result = await apiRequest(`/api/gem-probabilities?${params}`);
-  return formatProbabilities(result);
+  return result;
 }
 
 /**
@@ -99,21 +142,6 @@ export function formatProbabilities(probabilities) {
     'dealer_complete': { value: probabilities.prob_dealer_complete, label: '딜러 종결', percent: (probabilities.prob_dealer_complete * 100).toFixed(4) },
     'support_complete': { value: probabilities.prob_support_complete, label: '서폿 종결', percent: (probabilities.prob_support_complete * 100).toFixed(4) }
   };
-
-  // percentile 정보 추가 (있는 경우)
-  if (probabilities.percentiles) {
-    result.percentiles = probabilities.percentiles;
-  }
-
-  // selectionProbabilities 정보 추가 (있는 경우)
-  if (probabilities.availableOptions) {
-    result.availableOptions = probabilities.availableOptions;
-  }
-
-  // expectedCosts 정보 추가 (있는 경우)
-  if (probabilities.expectedCosts) {
-    result.expectedCosts = probabilities.expectedCosts;
-  }
   
   return result;
 }
@@ -122,6 +150,6 @@ export { ApiError };
 
 export default {
   checkServerHealth,
-  getGemProbabilities,
+  getGemData,
   formatProbabilities
 };

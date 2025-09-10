@@ -4,16 +4,13 @@ import {
   createProcessingGem, 
   rerollProcessingOptions, 
   getAllOptionsStatus, 
-  getProcessingHistory, 
-  getProcessingSteps,
-  convertGemToState,
-  loadCurrentProbabilities,
-  loadRerollProbabilities,
-  loadOptionProbabilities
+  getProcessingHistory,
+  getActionDescription, 
 } from '../utils/gemProcessing';
 import { GEM_TYPES, GEM_GRADES, GEM_EFFECTS } from '../utils/gemConstants';
 import { 
-  checkServerHealth
+  checkServerHealth,
+  getAllGemData
 } from '../utils/apiClient';
 import { useState, useEffect } from 'react';
 
@@ -32,10 +29,10 @@ function ProcessingGemDisplay({
   setSelectedHistoryIndex
 }) {
   const [serverStatus, setServerStatus] = useState('disconnected');
-  const [currentProbabilities, setCurrentProbabilities] = useState(null);
-  const [optionProbabilities, setOptionProbabilities] = useState(null);
-  const [rerollOptionProbabilities, setRerollOptionProbabilities] = useState(null);
-  const [isLoadingProbabilities, setIsLoadingProbabilities] = useState(false);
+  const [currentData, setCurrentData] = useState(null);
+  const [optionData, setOptionData] = useState(null);
+  const [rerollData, setRerollData] = useState(null);
+  const [isLoadingData, setIsLoadingData] = useState(false);
   const [isManualOptionSampling, setIsManualOptionSampling] = useState(false);
   const [selectedOptionIndex, setSelectedOptionIndex] = useState(null);
   const [showChangeTargets, setShowChangeTargets] = useState(false);
@@ -44,6 +41,7 @@ function ProcessingGemDisplay({
   const [gemPrice, setGemPrice] = useState(null);
   const [initialProbabilities, setInitialProbabilities] = useState(null); // 젬 초기 상태의 확률 정보
   const [initialGemStats, setInitialGemStats] = useState(null); // 젬 초기 상태의 목표별 확률과 예상비용
+  const [allData, setAllData] = useState(null); // 통합 API 응답 데이터
 
   // 현재 사용할 옵션 세트 계산
   const getCurrentOptionSet = () => {
@@ -70,10 +68,10 @@ function ProcessingGemDisplay({
 
   // 젬이 새로 설정될 때 초기 확률 정보 저장
   useEffect(() => {
-    if (processingGem && currentProbabilities && !initialProbabilities) {
-      setInitialProbabilities(currentProbabilities);
+    if (processingGem && currentData && !initialProbabilities) {
+      setInitialProbabilities(currentData);
     }
-  }, [processingGem, currentProbabilities]);
+  }, [processingGem, currentData]);
 
   // 젬이 새로 설정되거나 젬 가격이 변동될 때 초기 통계 계산
   useEffect(() => {
@@ -82,7 +80,7 @@ function ProcessingGemDisplay({
       const targets = ['5/5', '5/4', '4/5', '5/3', '4/4', '3/5', 'sum8+', 'sum9+', 'relic+', 'ancient+', 'dealer_complete', 'support_complete'];
       
       for (const target of targets) {
-        const currentProb = parseFloat(initialProbabilities[target]?.value || 0);
+        const currentProb = parseFloat(initialProbabilities.probabilities[target]?.value || 0);
         
         if (currentProb > 0) {
           // initialProbabilities에서 해당 목표의 예상 비용 가져오기
@@ -100,83 +98,97 @@ function ProcessingGemDisplay({
     }
   }, [gemPrice, initialProbabilities]);
 
-  // 젬 변경, 토글 상태, 옵션 세트 변경에 따른 확률 조회
+  // 젬의 핵심 상태나 서버 상태 변경 시 API 호출
   useEffect(() => {
     if (processingGem && serverStatus === 'connected') {
-      // 수동 모드에서는 4개 옵션이 모두 선택된 경우에만 확률 조회
-      if (isManualOptionSampling) {
-        const manualSet = processingGem.manualOptionSet || [];
-        if (manualSet.length === 4) {
-          Promise.all([
-            handleLoadCurrentProbabilities(),
-            handleLoadOptionProbabilities(),
-            handleLoadRerollProbabilities()
-          ]);
-        } else {
-          // 4개 미만이면 확률 초기화
-          setOptionProbabilities(null);
-        }
-      } else {
-        // 자동 모드에서는 항상 확률 조회
-        Promise.all([
-          handleLoadCurrentProbabilities(),
-          handleLoadOptionProbabilities(),
-          handleLoadRerollProbabilities()
-        ]);
-      }
+      handleLoadAllProbabilities();
     } else {
-      setCurrentProbabilities(null);
-      setOptionProbabilities(null);
-      setRerollOptionProbabilities(null);
+      setCurrentData(null);
+      setOptionData(null);
+      setRerollData(null);
     }
-  }, [processingGem, serverStatus, isManualOptionSampling, processingGem?.manualOptionSet]);
+  }, [processingGem?.processingCount, serverStatus]);
 
-  // 현재 젬 상태의 확률 조회
-  const handleLoadCurrentProbabilities = async () => {
+  // 옵션 세트 변경 시 기존 데이터를 재활용하여 필터링
+  useEffect(() => {
+    if (!allData) return;
+    
+    updateoptionData();
+  }, [processingGem?.autoOptionSet, isManualOptionSampling, processingGem?.manualOptionSet, allData]);
+
+  // 통합 확률 조회 - 현재, 리롤, 모든 옵션을 한 번에
+  const handleLoadAllProbabilities = async () => {
+    if (!processingGem) return;
+    
     try {
-      setIsLoadingProbabilities(true);
-      setCurrentProbabilities(null);  // 로딩 시작 전 초기화
-      const probabilities = await loadCurrentProbabilities(processingGem);
-      setCurrentProbabilities(probabilities);
+      setIsLoadingData(true);
+      // 모든 확률 초기화
+      setCurrentData(null);
+      setOptionData(null);
+      setRerollData(null);
+      
+      // 한 번의 API 호출로 모든 데이터 가져오기
+      const allData = await getAllGemData(processingGem);
+      
+      // 전체 데이터 저장
+      setAllData(allData);
+      
+      // 현재 상태 확률 설정
+      if (allData.current) {
+        setCurrentData(allData.current);
+      }
+      
+      // 리롤 확률 설정
+      if (allData.reroll) {
+        setRerollData(allData.reroll);
+      }
+      
+      // 옵션별 확률은 별도 함수에서 처리
+      updateoptionData(allData);
     } catch (error) {
-      console.error('현재 확률 조회 실패:', error);
-      setCurrentProbabilities(null);
+      console.error('통합 확률 조회 실패:', error);
+      setCurrentData(null);
+      setOptionData(null);
+      setRerollData(null);
     } finally {
-      setIsLoadingProbabilities(false);
+      setIsLoadingData(false);
     }
   };
 
-  // 옵션별 확률 조회
-  const handleLoadOptionProbabilities = async () => {
-    try {
-      setIsLoadingProbabilities(true);
-      setOptionProbabilities(null);  // 로딩 시작 전 초기화
-      const currentOptions = getCurrentOptionSet();
-      const probabilities = await loadOptionProbabilities(processingGem, currentOptions);
-      setOptionProbabilities(probabilities);
-    } catch (error) {
-      console.error('옵션 확률 조회 실패:', error);
-      setOptionProbabilities(null);
-    } finally {
-      setIsLoadingProbabilities(false);
+  // 옵션 확률 업데이트 (기존 데이터 재활용)
+  const updateoptionData = (data = allData) => {
+    if (!data?.options || data.options.length === 0) {
+      setOptionData(null);
+      return;
     }
-  };
-
-  // 리롤 후 가공 확률 조회
-  const handleLoadRerollProbabilities = async () => {
-    try {
-      setIsLoadingProbabilities(true);
-      setRerollOptionProbabilities(null);  // 로딩 시작 전 초기화
-      const probabilities = await loadRerollProbabilities(processingGem);
-      setRerollOptionProbabilities(probabilities);
-    } catch (error) {
-      console.error('리롤 확률 조회 실패:', error);
-      setRerollOptionProbabilities(null);
-    } finally {
-      setIsLoadingProbabilities(false);
+    
+    // 수동 모드일 때는 4개 옵션이 모두 선택된 경우에만 표시
+    if (isManualOptionSampling) {
+      const manualSet = processingGem?.manualOptionSet || [];
+      if (manualSet.length !== 4) {
+        setOptionData(null);
+        return;
+      }
     }
+    
+    // 현재 옵션 순서대로 매칭하여 정렬
+    const currentOptions = getCurrentOptionSet();
+    const formattedOptions = [];
+    
+    for (const currentOption of currentOptions) {
+      const matchedOption = data.options.find(opt => opt.action === currentOption.action);
+      if (matchedOption) {
+        formattedOptions.push({
+          action: matchedOption.action,
+          description: getActionDescription(matchedOption.action),
+          resultProbabilities: matchedOption.probabilities,
+          resultExpectedCosts: matchedOption.expectedCosts || {}
+        });
+      }
+    }
+    
+    setOptionData(formattedOptions);
   };
-
 
   // _change 옵션의 가능한 대상 옵션들 찾기
   const getAvailableChangeTargets = () => {
@@ -254,7 +266,7 @@ function ProcessingGemDisplay({
 
   // 서버 연결 상태 새로고침
   const handleRefreshConnection = async () => {
-    setIsLoadingProbabilities(true);
+    setIsLoadingData(true);
     
     try {
       await checkServerHealth();
@@ -262,17 +274,13 @@ function ProcessingGemDisplay({
       console.log('✅ API 서버 연결 새로고침 성공');
       
       if (processingGem) {
-        await Promise.all([
-          handleLoadCurrentProbabilities(),
-          handleLoadOptionProbabilities(),
-          handleLoadRerollProbabilities()
-        ]);
+        await handleLoadAllProbabilities();
       }
     } catch (error) {
       setServerStatus('error');
       console.error('❌ API 서버 연결 실패:', error);
     } finally {
-      setIsLoadingProbabilities(false);
+      setIsLoadingData(false);
     }
   };
 
@@ -312,27 +320,21 @@ function ProcessingGemDisplay({
 
   // 처리 계속 vs 새 젬 구매 권장사항
   const getProcessingRecommendation = (target) => {
-    if (!initialGemStats?.[target] || !optionProbabilities) {
+    if (!initialGemStats?.[target] || !optionData) {
       return null;
     }
     
-    // 각 옵션별로 %당 비용 계산 후 평균
+    // 각 옵션별로 계산 후 평균
     const processingCost = 900 * (1 + (processingGem.costModifier || 0) / 100);
     
     const validExpectedCosts = [];
-    
-    for (const option of optionProbabilities) {
+    for (const option of optionData) {
       if (option.resultProbabilities?.[target] && option.resultExpectedCosts?.[target] !== undefined) {
         const prob = parseFloat(option.resultProbabilities[target].value || 0);
         const cost = option.resultExpectedCosts[target];
         
-        if (prob > 0 && cost < Infinity) {
-          const expectedCost = processingCost + cost + (1 - prob) * initialGemStats[target].baseThreshold;
-          validExpectedCosts.push(expectedCost);
-        } else {
-          const expectedCost = processingCost + initialGemStats[target].baseThreshold;
-          validExpectedCosts.push(expectedCost);
-        }
+        const expectedCost = processingCost + cost + (1 - prob) * initialGemStats[target].baseThreshold;
+        validExpectedCosts.push(expectedCost);
       }
     }
     if (validExpectedCosts.length === 0) {
@@ -419,10 +421,10 @@ function ProcessingGemDisplay({
           
           <button 
             onClick={handleRefreshConnection} 
-            disabled={isLoadingProbabilities}
+            disabled={isLoadingData}
             className="refresh-connection-btn"
           >
-            {isLoadingProbabilities ? '연결 중...' : '서버 연결 새로고침'}
+            {isLoadingData ? '연결 중...' : '서버 연결 새로고침'}
           </button>
         </div>
 
@@ -574,10 +576,10 @@ function ProcessingGemDisplay({
               // 확률 표시 모드에 따른 계산
               let displayOptions = allOptions;
               
-              if (showDisplayProbability && currentProbabilities?.availableOptions) {
+              if (showDisplayProbability && currentData?.availableOptions) {
                 // 모드 1: DB에서 온 selectionProbability × 4가 실제 출현 확률
                 const selectionProbMap = {};
-                currentProbabilities.availableOptions.forEach(apiOpt => {
+                currentData.availableOptions.forEach(apiOpt => {
                   selectionProbMap[apiOpt.action] = apiOpt.selectionProbability;
                 });
                 
@@ -1110,10 +1112,10 @@ function ProcessingGemDisplay({
           
           <button 
             onClick={handleRefreshConnection} 
-            disabled={isLoadingProbabilities}
+            disabled={isLoadingData}
             className="refresh-connection-btn"
           >
-            {isLoadingProbabilities ? '연결 중...' : '서버 연결 새로고침'}
+            {isLoadingData ? '연결 중...' : '서버 연결 새로고침'}
           </button>
         </div>
 
@@ -1154,14 +1156,14 @@ function ProcessingGemDisplay({
                 {/* 목표별 확률 행들 */}
                 {['5/5', '5/4', '4/5', '5/3', '4/4', '3/5', 'sum8+', 'sum9+', 'relic+', 'ancient+', 'dealer_complete', 'support_complete'].map((target) => {
                   // 현재 젬 상태 확률
-                  const currentProb = currentProbabilities?.[target]?.percent || '0.0';
+                  const currentProb = currentData?.probabilities[target]?.percent || '0.0';
                   
                   // 현재 옵션으로 가공 확률 (4개 옵션의 평균)
                   let optionProb = '0.0';
                   let percentileText = '';
                   
-                  if (optionProbabilities && optionProbabilities.length > 0) {
-                    const validProbs = optionProbabilities
+                  if (optionData && optionData.length > 0) {
+                    const validProbs = optionData
                       .map(opt => opt.resultProbabilities ? opt.resultProbabilities?.[target]?.percent || '0.0' : '0.0')
                       .map(p => parseFloat(p))
                       .filter(p => !isNaN(p));
@@ -1171,9 +1173,9 @@ function ProcessingGemDisplay({
                       optionProb = avgProb.toFixed(4);
                       
                       // percentile 정보 찾기
-                      if (currentProbabilities?.percentiles?.[target]) {
+                      if (currentData?.percentiles?.[target]) {
                         const currentProbDecimal = avgProb / 100;
-                        const percentiles = currentProbabilities.percentiles[target];
+                        const percentiles = currentData.percentiles[target];
                         
                         // 현재 확률이 어느 percentile에 해당하는지 찾기
                         let foundPercentile = 100;
@@ -1191,42 +1193,46 @@ function ProcessingGemDisplay({
                   
                   // 리롤 후 가공 확률
                   let rerollProb = '0.0';
-                  if (rerollOptionProbabilities && rerollOptionProbabilities[target]) {
-                    rerollProb = rerollOptionProbabilities[target].percent;
+                  if (rerollData && rerollData.probabilities[target]) {
+                    rerollProb = rerollData.probabilities[target].percent;
                   }
                   
-                  // 최고 확률 찾기 (하이라이트용)
-                  const probs = [parseFloat(optionProb), parseFloat(rerollProb)];
-                  const maxProb = Math.max(...probs);
-                  const isGoodTarget = [].includes(target);
+                  // 확률 비교 계산
+                  const optionProbNum = parseFloat(optionProb);
+                  const rerollProbNum = parseFloat(rerollProb);
+                  let isOptionBetter = true;
+                  if (optionProbNum < rerollProbNum && processingGem.currentRerollAttempts > 0 && processingGem.processingCount > 0) {
+                    isOptionBetter = false;
+                  }
+                  const isRerollBetter = rerollProbNum > optionProbNum && rerollProbNum > 0;
                   
                   return (
-                    <tr key={target} className={isGoodTarget ? 'good-target' : ''}>
+                    <tr key={target}>
                       <td className="target-name">
                         {getTargetDisplayLabel(target)}
                       </td>
-                      <td className={`prob-cell ${parseFloat(optionProb) === maxProb && maxProb > 0 ? 'highest' : ''}`}>
-                        {isLoadingProbabilities ? (
+                      <td className="prob-cell">
+                        {isLoadingData ? (
                           <span className="prob-unavailable">계산 중...</span>
-                        ) : optionProbabilities ? (
+                        ) : optionData ? (
                           <div className="prob-content">
                             <div className="prob-main has-details">
-                              <span className={`prob-value ${parseFloat(optionProb) === maxProb && maxProb > 0 ? 'better' : ''}`}>
+                              <span className={`prob-value ${isOptionBetter ? 'better' : ''}`}>
                                 {optionProb}%
-                                {parseFloat(optionProb) === maxProb && maxProb > 0 && parseFloat(rerollProb) > 0 && <span className="better-indicator">↑</span>}
+                                {isOptionBetter && rerollProbNum > 0 && <span className="better-indicator">↑</span>}
                               </span>
                               
                               {/* 호버 툴팁 - 각 옵션별 확률 및 비용 표시 */}
                               <div className="prob-tooltip">
                                 <div className="tooltip-title">
-                                  각 옵션별 {currentProbabilities?.[target]?.label || target} 확률 및 이후 예상 비용
+                                  각 옵션 별 {currentData.probabilities?.[target]?.label || target} 확률 및 이후 예상 비용
                                   {percentileText && (
                                     <div style={{ color: '#4CAF50', marginTop: '4px' }}>
                                       이 옵션 세트의 백분위: {percentileText}
                                     </div>
                                   )}
                                 </div>
-                                {optionProbabilities.map((option, idx) => {
+                                {optionData.map((option, idx) => {
                                   const optionTargetProb = option.resultProbabilities ? 
                                     option.resultProbabilities?.[target]?.percent || '0.0' : '0.0';
                                   const optionDesc = option.description || option.action;
@@ -1260,14 +1266,14 @@ function ProcessingGemDisplay({
                           <span className="prob-unavailable">-</span>
                         )}
                       </td>
-                      <td className={`prob-cell ${parseFloat(rerollProb) === maxProb && maxProb > 0 ? 'highest' : ''}`}>
-                        {isLoadingProbabilities ? (
+                      <td className="prob-cell">
+                        {isLoadingData ? (
                           <span className="prob-unavailable">계산 중...</span>
                         ) : processingGem && processingGem.currentRerollAttempts > 0 && processingGem.processingCount > 0 ? (
-                          rerollOptionProbabilities ? (
-                            <span className={`prob-value ${parseFloat(rerollProb) === maxProb && maxProb > 0 ? 'better' : ''}`}>
+                          rerollData ? (
+                            <span className={`prob-value ${isRerollBetter ? 'better' : ''}`}>
                               {rerollProb}%
-                              {parseFloat(rerollProb) === maxProb && maxProb > 0 && parseFloat(optionProb) > 0 && <span className="better-indicator">↑</span>}
+                              {isRerollBetter && <span className="better-indicator">↑</span>}
                             </span>
                           ) : (
                             <span className="prob-unavailable">-</span>
@@ -1278,10 +1284,10 @@ function ProcessingGemDisplay({
                           </span>
                         )}
                       </td>
-                      <td className={`prob-cell ${parseFloat(currentProb) === maxProb && maxProb > 0 ? 'highest' : ''}`}>
-                        {isLoadingProbabilities ? (
+                      <td className="prob-cell">
+                        {isLoadingData ? (
                           <span className="prob-unavailable">계산 중...</span>
-                        ) : currentProbabilities ? (
+                        ) : currentData ? (
                           <span className="prob-value">{currentProb}%</span>
                         ) : (
                           <span className="prob-unavailable">-</span>
@@ -1289,7 +1295,7 @@ function ProcessingGemDisplay({
                       </td>
                       <td className="recommendation-cell">
                         {(() => {
-                          if (isLoadingProbabilities) {
+                          if (isLoadingData) {
                             return <span className="prob-loading">계산 중...</span>;
                           }
                           

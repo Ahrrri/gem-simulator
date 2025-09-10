@@ -11,6 +11,7 @@ import { fileURLToPath } from 'url';
 import https from 'https';
 import fs from 'fs';
 import { dirname, join } from 'path';
+import { getAvailableProcessingOptions, applyGemAction } from '../src/utils/gemProcessing.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -212,6 +213,217 @@ app.post('/api/query', (req, res) => {
       res.status(500).json({ error: err.message });
     } else {
       res.json(rows);
+    }
+  });
+});
+
+// 통합 확률 조회 - 현재 상태, 리롤, 모든 옵션의 확률을 한 번에
+app.get('/api/gem-all-probabilities', (req, res) => {
+  if (!req.query.s) {
+    return res.status(400).json({ error: 'Missing required parameter: s' });
+  }
+  
+  const values = req.query.s.split('_').map(Number);
+  const [willpower, corePoint, dealerA, dealerB, supportA, supportB,
+         remainingAttempts, currentRerollAttempts = 0, costModifier = 0, isFirstProcessing = 0] = values;
+  
+  const gem = {
+    willpower: parseInt(willpower) || 0,
+    corePoint: parseInt(corePoint) || 0,
+    dealerA: parseInt(dealerA) || 0,
+    dealerB: parseInt(dealerB) || 0,
+    supportA: parseInt(supportA) || 0,
+    supportB: parseInt(supportB) || 0,
+    remainingAttempts: parseInt(remainingAttempts) || 0,
+    currentRerollAttempts: parseInt(currentRerollAttempts) || 0,
+    costModifier: parseInt(costModifier) || 0,
+    isFirstProcessing: parseInt(isFirstProcessing) || 0
+  };
+  
+  // 리롤 상태 계산
+  function getRerollState(gemState) {
+    return {
+      ...gemState,
+      currentRerollAttempts: Math.max(0, gemState.currentRerollAttempts - 1)
+    };
+  }
+  
+  // 가능한 옵션들 가져오기
+  const availableOptions = getAvailableProcessingOptions(gem);
+  
+  // 모든 상태들을 수집
+  const states = [];
+  const stateKeys = new Set();
+  
+  // 현재 상태 추가
+  const currentKey = `${gem.willpower}_${gem.corePoint}_${gem.dealerA}_${gem.dealerB}_${gem.supportA}_${gem.supportB}_${gem.remainingAttempts}_${gem.currentRerollAttempts}_${gem.costModifier}_${gem.isFirstProcessing}`;
+  states.push({ type: 'current', gem: gem, key: currentKey });
+  stateKeys.add(currentKey);
+  
+  // 리롤 상태 추가
+  if (gem.currentRerollAttempts > 0) {
+    const rerollGem = getRerollState(gem);
+    const rerollKey = `${rerollGem.willpower}_${rerollGem.corePoint}_${rerollGem.dealerA}_${rerollGem.dealerB}_${rerollGem.supportA}_${rerollGem.supportB}_${rerollGem.remainingAttempts}_${rerollGem.currentRerollAttempts}_${rerollGem.costModifier}_${rerollGem.isFirstProcessing}`;
+    if (!stateKeys.has(rerollKey)) {
+      states.push({ type: 'reroll', gem: rerollGem, key: rerollKey });
+      stateKeys.add(rerollKey);
+    }
+  }
+  
+  // 각 옵션 적용 후 상태 추가
+  for (const option of availableOptions) {
+    const appliedGem = applyGemAction(gem, option.action);
+    const appliedKey = `${appliedGem.willpower}_${appliedGem.corePoint}_${appliedGem.dealerA}_${appliedGem.dealerB}_${appliedGem.supportA}_${appliedGem.supportB}_${appliedGem.remainingAttempts}_${appliedGem.currentRerollAttempts}_${appliedGem.costModifier}_${appliedGem.isFirstProcessing}`;
+    if (!stateKeys.has(appliedKey)) {
+      states.push({ type: 'option', action: option.action, gem: appliedGem, key: appliedKey });
+      stateKeys.add(appliedKey);
+    }
+  }
+  
+  // 모든 상태의 확률을 한 번에 조회
+  const placeholders = states.map(() => '(?,?,?,?,?,?,?,?,?,?)').join(',');
+  const params = [];
+  for (const state of states) {
+    params.push(
+      state.gem.willpower,
+      state.gem.corePoint,
+      state.gem.dealerA,
+      state.gem.dealerB,
+      state.gem.supportA,
+      state.gem.supportB,
+      state.gem.remainingAttempts,
+      state.gem.currentRerollAttempts,
+      state.gem.costModifier,
+      state.gem.isFirstProcessing
+    );
+  }
+  
+  const query = `
+    SELECT id, willpower, corePoint, dealerA, dealerB, supportA, supportB,
+           remainingAttempts, currentRerollAttempts, costModifier, isFirstProcessing,
+           prob_5_5, prob_5_4, prob_4_5, prob_5_3, prob_4_4, prob_3_5,
+           prob_sum8, prob_sum9, prob_relic, prob_ancient,
+           prob_dealer_complete, prob_support_complete
+    FROM goal_probabilities 
+    WHERE (willpower, corePoint, dealerA, dealerB, supportA, supportB, 
+           remainingAttempts, currentRerollAttempts, costModifier, isFirstProcessing) 
+    IN (VALUES ${placeholders})
+  `;
+  
+  db.all(query, params, async (err, rows) => {
+    if (err) {
+      res.status(500).json({ error: err.message });
+    } else {
+      // 모든 상태의 ID 수집
+      const stateIds = rows.map(row => row.id);
+      
+      // percentile 데이터 조회
+      const percentileQuery = `
+        SELECT gem_state_id, target, percentile, value
+        FROM goal_probability_distributions
+        WHERE gem_state_id IN (${stateIds.map(() => '?').join(',')})
+        ORDER BY gem_state_id, target, percentile
+      `;
+      
+      // expected costs 데이터 조회  
+      const costsQuery = `
+        SELECT gem_state_id, target, expected_cost_to_goal
+        FROM expected_costs
+        WHERE gem_state_id IN (${stateIds.map(() => '?').join(',')})
+      `;
+      
+      // available options 데이터 조회
+      const optionsQuery = `
+        SELECT gem_state_id, action, probability, description, selectionProbability
+        FROM available_options
+        WHERE gem_state_id IN (${stateIds.map(() => '?').join(',')})
+        ORDER BY gem_state_id, selectionProbability DESC
+      `;
+      
+      try {
+        const [percentileRows, costRows, optionRows] = await Promise.all([
+          new Promise((resolve, reject) => {
+            db.all(percentileQuery, stateIds, (err, rows) => err ? reject(err) : resolve(rows));
+          }),
+          new Promise((resolve, reject) => {
+            db.all(costsQuery, stateIds, (err, rows) => err ? reject(err) : resolve(rows));
+          }),
+          new Promise((resolve, reject) => {
+            db.all(optionsQuery, stateIds, (err, rows) => err ? reject(err) : resolve(rows));
+          })
+        ]);
+        
+        // 결과 매핑
+        const result = {
+          current: null,
+          reroll: null,
+          options: [],
+          availableOptions: availableOptions
+        };
+        
+        for (const row of rows) {
+          const rowKey = `${row.willpower}_${row.corePoint}_${row.dealerA}_${row.dealerB}_${row.supportA}_${row.supportB}_${row.remainingAttempts}_${row.currentRerollAttempts}_${row.costModifier}_${row.isFirstProcessing}`;
+          
+          const state = states.find(s => s.key === rowKey);
+          if (state) {
+            // percentiles 구조화
+            const percentiles = {};
+            const statePercentiles = percentileRows.filter(p => p.gem_state_id === row.id);
+            for (const pRow of statePercentiles) {
+              if (!percentiles[pRow.target]) {
+                percentiles[pRow.target] = {};
+              }
+              percentiles[pRow.target][pRow.percentile] = pRow.value;
+            }
+            
+            // expected costs 구조화
+            const expectedCosts = {};
+            const stateCosts = costRows.filter(c => c.gem_state_id === row.id);
+            for (const cRow of stateCosts) {
+              expectedCosts[cRow.target] = cRow.expected_cost_to_goal;
+            }
+            
+            // available options 구조화
+            const availableOptions = optionRows.filter(o => o.gem_state_id === row.id);
+            
+            const probData = {
+              gem: state.gem,
+              probabilities: {
+                prob_5_5: row.prob_5_5,
+                prob_5_4: row.prob_5_4,
+                prob_4_5: row.prob_4_5,
+                prob_5_3: row.prob_5_3,
+                prob_4_4: row.prob_4_4,
+                prob_3_5: row.prob_3_5,
+                prob_sum8: row.prob_sum8,
+                prob_sum9: row.prob_sum9,
+                prob_relic: row.prob_relic,
+                prob_ancient: row.prob_ancient,
+                prob_dealer_complete: row.prob_dealer_complete,
+                prob_support_complete: row.prob_support_complete
+              },
+              percentiles,
+              expectedCosts,
+              availableOptions
+            };
+            
+            if (state.type === 'current') {
+              result.current = probData;
+            } else if (state.type === 'reroll') {
+              result.reroll = probData;
+            } else if (state.type === 'option') {
+              result.options.push({
+                action: state.action,
+                ...probData
+              });
+            }
+          }
+        }
+        
+        res.json(result);
+      } catch (dbError) {
+        res.status(500).json({ error: dbError.message });
+      }
     }
   });
 });

@@ -6,9 +6,6 @@ import {
   getRerollAttempts,
   getProcessingAttempts
 } from './gemConstants.js';
-import { 
-  getGemProbabilities
-} from './apiClient.js';
 
 // ============================================================================
 // 1. 젬 생성 관련
@@ -212,105 +209,6 @@ export function executeGemProcessing(gem, selectedOption, targetOption = null) {
 }
 
 // ============================================================================
-// 4. 젬 상태 변환 및 확률 조회
-// ============================================================================
-
-// 젬 객체를 백엔드 상태 형식으로 변환
-export function convertGemToState(gem) {
-  return {
-    willpower: gem.willpower,
-    corePoint: gem.corePoint,
-    dealerA: gem.dealerA || 0,
-    dealerB: gem.dealerB || 0,
-    supportA: gem.supportA || 0,
-    supportB: gem.supportB || 0,
-    remainingAttempts: gem.remainingAttempts,
-    currentRerollAttempts: gem.currentRerollAttempts || 0,
-    costModifier: gem.costModifier || 0,
-    isFirstProcessing: gem.processingCount === 0
-  };
-}
-
-// 현재 젬 상태의 확률 조회
-export async function loadCurrentProbabilities(gem) {
-  try {
-    const gemState = convertGemToState(gem);
-    return await getGemProbabilities(gemState);
-  } catch (error) {
-    console.error('현재 확률 조회 실패:', error);
-    return null;
-  }
-}
-
-// 리롤 후 확률 조회
-export async function loadRerollProbabilities(gem) {
-  if (gem.currentRerollAttempts <= 0 || gem.processingCount === 0) {
-    return null;
-  }
-
-  try {
-    // 리롤된 젬 상태로 확률 조회
-    const rerolledGem = { 
-      ...gem, 
-      currentRerollAttempts: gem.currentRerollAttempts - 1 
-    };
-    const gemState = convertGemToState(rerolledGem);
-    
-    // 리롤된 상태의 확률을 직접 조회
-    return await getGemProbabilities(gemState);
-  } catch (error) {
-    console.error('리롤 확률 조회 실패:', error);
-    return null;
-  }
-}
-
-// 옵션별 확률 조회 - 각 옵션을 적용했을 때의 결과 확률을 계산
-export async function loadOptionProbabilities(gem, options) {
-  if (!options || options.length === 0) {
-    return null;
-  }
-
-  try {
-    const optionsWithProbabilities = [];
-    
-    for (const option of options) {
-      try {
-        // 각 옵션을 적용한 결과 젬 상태 계산
-        const resultGem = applyGemAction(gem, option.action);
-        
-        if (resultGem) {
-          // 결과 젬 상태의 확률 조회
-          const resultProbabilities = await loadCurrentProbabilities(resultGem);
-          
-          optionsWithProbabilities.push({
-            ...option,
-            resultProbabilities,
-            resultExpectedCosts: resultProbabilities?.expectedCosts
-          });
-        } else {
-          // 적용할 수 없는 옵션인 경우
-          optionsWithProbabilities.push({
-            ...option,
-            resultProbabilities: null
-          });
-        }
-      } catch (error) {
-        console.error(`옵션 ${option.action} 확률 계산 실패:`, error);
-        optionsWithProbabilities.push({
-          ...option,
-          resultProbabilities: null
-        });
-      }
-    }
-    
-    return optionsWithProbabilities;
-  } catch (error) {
-    console.error('옵션 확률 조회 실패:', error);
-    return null;
-  }
-}
-
-// ============================================================================
 // 5. 공통 유틸리티 함수들
 // ============================================================================
 
@@ -420,20 +318,6 @@ export function calculateTotalPoints(gem) {
   return (gem.willpower || 0) + (gem.corePoint || 0) + 
          (gem.dealerA || 0) + (gem.dealerB || 0) + 
          (gem.supportA || 0) + (gem.supportB || 0);
-}
-
-// 젬 상태를 키 문자열로 변환 (메모이제이션용)
-export function gemStateToKey(gem) {
-  // 리롤 횟수를 4로 제한하여 메모이제이션 효율 향상
-  const cappedReroll = Math.min(4, gem.currentRerollAttempts || 0);
-  
-  // 4개 옵션 레벨 (0~5)
-  const dealerA = gem.dealerA || 0;
-  const dealerB = gem.dealerB || 0;  
-  const supportA = gem.supportA || 0;
-  const supportB = gem.supportB || 0;
-  
-  return `${gem.willpower},${gem.corePoint},${dealerA},${dealerB},${supportA},${supportB},${gem.remainingAttempts},${cappedReroll}`;
 }
 
 // 옵션 설명 가져오기 함수

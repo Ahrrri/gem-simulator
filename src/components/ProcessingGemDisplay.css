@@ -1486,7 +1486,14 @@
 }
 
 .prob-value.better {
-  background-color: #d1ecf1;
+  background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%) !important;
+  box-shadow: 
+    inset 2px 0 0 0 #f39c12,   /* 왼쪽 2px */
+    inset -2px 0 0 0 #f39c12,  /* 오른쪽 2px */
+    inset 0 1px 0 0 #f39c12,   /* 위쪽 1px */
+    inset 0 -1px 0 0 #f39c12;  /* 아래쪽 1px */
+  position: relative;
+  animation: highlight-pulse 2s ease-in-out infinite;
   color: #0c5460;
 }
 

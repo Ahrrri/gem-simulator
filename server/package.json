@@ -5,7 +5,7 @@
   "main": "server.js",
   "type": "module",
   "scripts": {
-    "start": "cross-env PORT=9757 node server.js",
+    "start": "cross-env PORT=9757 USE_SSL=true SSL_PATH=. node server.js",
     "start:3001": "cross-env PORT=3001 node server.js",
     "dev": "nodemon server.js"
   },

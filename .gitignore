@@ -33,3 +33,5 @@ gem_calculation_progress*.mp4
 probability_*.db
 probability_*.json
 __pycache__/generate_probability_table.cpython-313.pyc
+privkey.pem
+fullchain.pem

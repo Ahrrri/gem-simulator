@@ -8,6 +8,8 @@ import express from 'express';
 import cors from 'cors';
 import sqlite3 from 'sqlite3';
 import { fileURLToPath } from 'url';
+import https from 'https';
+import fs from 'fs';
 import { dirname, join } from 'path';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -239,15 +241,46 @@ async function startServer() {
   try {
     await initDatabase();
     
-    app.listen(PORT, '0.0.0.0', () => {
-      console.log(`🚀 서버가 포트 ${PORT}에서 실행 중입니다 (모든 인터페이스)`);
-      console.log(`📡 API 엔드포인트:`);
-      console.log(`   GET  /health - 헬스 체크`);
-      console.log(`   GET  /api/stats - 데이터베이스 통계 (총 상태 수)`);
-      console.log(`   GET  /api/gem-probabilities - 젬 상태별 확률`);
-      console.log(`   POST /api/query - 커스텀 쿼리`);
-      console.log(`   GET  /api/available-options/:id - 사용 가능한 옵션들`);
-    });
+    // SSL 인증서 경로 설정
+    const sslPath = process.env.SSL_PATH || '/etc/letsencrypt/live/ahrrri.iptime.org';
+    const useSSL = process.env.USE_SSL === 'true';
+    
+    if (useSSL) {
+      try {
+        const options = {
+          key: fs.readFileSync(`${sslPath}/privkey.pem`),
+          cert: fs.readFileSync(`${sslPath}/fullchain.pem`)
+        };
+        
+        https.createServer(options, app).listen(PORT, '0.0.0.0', () => {
+          console.log(`🔒 HTTPS 서버가 포트 ${PORT}에서 실행 중입니다 (모든 인터페이스)`);
+          console.log(`📡 API 엔드포인트: https://ahrrri.iptime.org:${PORT}`);
+          console.log(`   GET  /health - 헬스 체크`);
+          console.log(`   GET  /api/stats - 데이터베이스 통계 (총 상태 수)`);
+          console.log(`   GET  /api/gem-probabilities - 젬 상태별 확률`);
+          console.log(`   POST /api/query - 커스텀 쿼리`);
+          console.log(`   GET  /api/available-options/:id - 사용 가능한 옵션들`);
+        });
+      } catch (error) {
+        console.error('❌ SSL 인증서를 읽을 수 없습니다:', error.message);
+        console.log('HTTP 서버로 fallback합니다...');
+        startHttpServer();
+      }
+    } else {
+      startHttpServer();
+    }
+    
+    function startHttpServer() {
+      app.listen(PORT, '0.0.0.0', () => {
+        console.log(`🚀 HTTP 서버가 포트 ${PORT}에서 실행 중입니다 (모든 인터페이스)`);
+        console.log(`📡 API 엔드포인트: http://ahrrri.iptime.org:${PORT}`);
+        console.log(`   GET  /health - 헬스 체크`);
+        console.log(`   GET  /api/stats - 데이터베이스 통계 (총 상태 수)`);
+        console.log(`   GET  /api/gem-probabilities - 젬 상태별 확률`);
+        console.log(`   POST /api/query - 커스텀 쿼리`);
+        console.log(`   GET  /api/available-options/:id - 사용 가능한 옵션들`);
+      });
+    }
   } catch (error) {
     console.error('서버 시작 실패:', error);
     process.exit(1);

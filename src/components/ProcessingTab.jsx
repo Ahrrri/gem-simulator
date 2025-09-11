@@ -50,23 +50,27 @@ function ProcessingTab() {
   return (
     <div className="processing-tab">
       {/* 젬 생성 방식 선택 */}
-      <div className="gem-creation-mode-selector">
-        <div className="mode-buttons">
-          <button
-            className={`mode-btn ${gemCreationMode === 'auto' ? 'active' : ''}`}
-            onClick={() => setGemCreationMode('auto')}
-          >
-            🖼️ 이미지 자동 인식
-          </button>
-          <button
-            className={`mode-btn ${gemCreationMode === 'manual' ? 'active' : ''}`}
-            onClick={() => setGemCreationMode('manual')}
-          >
-            ✏️ 수동 입력
-          </button>
+      {!processingGem && (
+        <div className="gem-creation-mode-selector">
+          <div className="mode-buttons">
+            <button
+              className={`mode-btn ${gemCreationMode === 'auto' ? 'active' : ''}`}
+              onClick={() => {
+                setGemCreationMode('auto');
+                setProcessingGem(null);
+              }}
+            >
+              이미지 자동 인식
+            </button>
+            <button
+              className={`mode-btn ${gemCreationMode === 'manual' ? 'active' : ''}`}
+              onClick={() => setGemCreationMode('manual')}
+            >
+              수동 설정
+            </button>
+          </div>
         </div>
-      </div>
-
+      )}
       {/* OCR 자동 인식 섹션 */}
       {gemCreationMode === 'auto' && (
         <div className="image-capture-section">

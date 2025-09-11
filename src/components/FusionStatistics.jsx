@@ -37,7 +37,7 @@ function FusionStatistics({ statistics, allResults, selectedCombo, setSelectedCo
 
   return (
     <div className="statistics-section">
-      <h2>📊 통계</h2>
+      <h2>통계</h2>
       <div className="stats-compact">
         <div className="stat-row">
           <span>총 시도: <strong>{statistics.totalRuns}</strong></span>

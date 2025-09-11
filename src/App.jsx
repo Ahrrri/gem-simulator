@@ -9,8 +9,8 @@ function App() {
 
   return (
     <div className="App">
-      <h1>로스트아크 젬 시뮬레이터</h1>
-      <div className="version-info">v2025.09.10 12:15</div>
+      <h1>젬 가공 시뮬레이터</h1><h4>by 조알기@아브렐슈드</h4>
+      <div className="version-info">v2025.09.11 11:50</div>
       
       {/* 탭 네비게이션 */}
       <div className="tab-navigation">
@@ -18,13 +18,13 @@ function App() {
           className={`tab-button ${activeTab === 'fusion' ? 'active' : ''}`}
           onClick={() => setActiveTab('fusion')}
         >
-          🔮 젬 융합
+          🔮 융합
         </button>
         <button 
           className={`tab-button ${activeTab === 'processing' ? 'active' : ''}`}
           onClick={() => setActiveTab('processing')}
         >
-          ⚙️ 젬 가공
+          ⚙️ 가공
         </button>
       </div>
 

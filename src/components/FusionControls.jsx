@@ -10,13 +10,13 @@ function FusionControls({
 }) {
   return (
     <div className="control-section">
-      <button 
+      {/* <button 
         className="btn btn-primary"
         onClick={executeSingleFusion}
         disabled={isSimulating}
       >
-        🎲 단일 융합 실행
-      </button>
+        한 번만 융합
+      </button> */}
       
       <div className="bulk-controls">
         <input
@@ -26,13 +26,13 @@ function FusionControls({
           min="1"
           max="1000000"
           disabled={isSimulating}
-        />
+        />회
         <button 
           className="btn btn-secondary"
           onClick={executeBulkSimulation}
           disabled={isSimulating}
         >
-          {isSimulating ? '🔄 시뮬레이션 중...' : '🔄 대량 시뮬레이션'}
+          {isSimulating ? '시뮬레이션 중...' : '융합'}
         </button>
       </div>
       
@@ -41,7 +41,7 @@ function FusionControls({
         onClick={reset}
         disabled={isSimulating}
       >
-        🗑️ 초기화
+        초기화
       </button>
     </div>
   );

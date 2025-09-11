@@ -169,20 +169,3 @@
   color: white;
   box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
 }
-
-
-
-
-/* Responsive */
-@media (max-width: 768px) {
-  .tab-navigation {
-    flex-direction: column;
-    gap: 0.3rem;
-  }
-  
-  .tab-button {
-    padding: 0.5rem 1rem;
-    font-size: 0.9rem;
-  }
-}
-

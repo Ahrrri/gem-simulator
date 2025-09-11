@@ -955,13 +955,6 @@
   font-size: 0.75rem;
 }
 
-.probability-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
-  gap: 0.5rem;
-  align-items: start;
-}
-
 .probability-item {
   background: white;
   padding: 0.5rem;

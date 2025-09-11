@@ -48,6 +48,7 @@
 .grade-selection h4 {
   color: #555;
   margin-bottom: 0.75rem;
+  font-size: 1rem;
 }
 
 /* 조합 선택 스타일 */
@@ -192,7 +193,7 @@
 
 .type-buttons {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
   gap: 0.5rem;
   max-width: 800px;
   margin: 0 auto;
@@ -303,23 +304,9 @@
 
 /* Responsive */
 @media (max-width: 768px) {
-  .creation-modes {
-    grid-template-columns: 1fr;
-    gap: 1.5rem;
-  }
-  
-  .type-buttons {
-    grid-template-columns: repeat(2, 1fr);
-  }
-  
   .gem-type-btn {
     font-size: 0.8rem;
     padding: 0.5rem;
-  }
-  
-  .grade-buttons {
-    flex-direction: column;
-    align-items: center;
   }
   
   .grade-btn {

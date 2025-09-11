@@ -62,7 +62,7 @@ function FusionTab() {
     setStatistics(null);
   };
   return (
-    <>
+    <div className="fusion-tab">
       {/* 재료 설정 */}
       <MaterialSection 
         materials={materials}
@@ -115,7 +115,7 @@ function FusionTab() {
           setSelectedCombo={setSelectedCombo}
         />
       )}
-    </>
+    </div>
   );
 }
 

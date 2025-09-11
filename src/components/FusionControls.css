@@ -68,10 +68,3 @@
   cursor: not-allowed;
   transform: none !important;
 }
-
-/* Responsive */
-@media (max-width: 768px) {
-  .control-section {
-    flex-direction: column;
-  }
-}

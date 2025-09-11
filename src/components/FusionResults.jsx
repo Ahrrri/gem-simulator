@@ -21,7 +21,7 @@ function FusionResults({ currentResult }) {
 
   return (
     <div className="result-section">
-      <h2>✨ 융합 결과</h2>
+      <h2>융합 결과</h2>
       <div className={`result-card ${currentResult.grade.toLowerCase()}`}>
         <div className="result-grade">{getGradeName(currentResult.grade)}</div>
         <div className="result-type">

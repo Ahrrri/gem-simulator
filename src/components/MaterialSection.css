@@ -129,15 +129,3 @@
   font-size: 0.9rem;
   font-weight: bold;
 }
-
-/* Responsive */
-@media (max-width: 768px) {
-  .materials {
-    grid-template-columns: 1fr;
-  }
-  
-  .probability-grid {
-    flex-direction: column;
-    align-items: center;
-  }
-}

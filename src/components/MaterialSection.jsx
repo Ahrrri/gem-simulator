@@ -53,7 +53,7 @@ function MaterialSection({ materials, setMaterials }) {
 
   return (
     <div className="material-section">
-      <h2>📦 재료 젬 설정</h2>
+      <h2>재료 젬 설정</h2>
       <div className="materials">
         {materials.map((material, index) => (
           <div key={material.id} className="material-card">
@@ -95,7 +95,7 @@ function MaterialSection({ materials, setMaterials }) {
       
       {/* 융합 확률 표시 */}
       <div className="fusion-probability">
-        <h3>🎯 융합 확률</h3>
+        <h3>융합 확률</h3>
         <div className="probability-grid">
           {(() => {
             const probs = getFusionProbabilities(materials);

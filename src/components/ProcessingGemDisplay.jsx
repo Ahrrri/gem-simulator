@@ -953,7 +953,7 @@ function ProcessingGemDisplay({
                   }
                 }}
               >
-                🔄 다른 항목 보기 ({processingGem.currentRerollAttempts}회)
+                다른 항목 보기 ({processingGem.currentRerollAttempts}회)
               </button>
             </div>
           </div>

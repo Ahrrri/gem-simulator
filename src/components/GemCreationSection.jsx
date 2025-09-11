@@ -85,13 +85,11 @@ function GemCreationSection({
   };
 
   return (
-    <div className="gem-creation-section">
-      {!processingGem ? (
+    !processingGem && (
+      <div className="gem-creation-section">
         <div className="gem-creation">
           <div className="creation-modes">
-            <div className="manual-processing">
-              <h3>수동 생성</h3>
-              
+            <div className="manual-processing">              
               {/* 젬 등급 선택 */}
               <div className="grade-selection">
                 <h4>젬 등급 선택</h4>
@@ -140,7 +138,7 @@ function GemCreationSection({
                       className="auto-combo-btn"
                       onClick={createGemWithRandomCombination}
                     >
-                      🎲 자동 조합 (랜덤)
+                      자동 조합 (랜덤)
                     </button>
                   </div>
                   
@@ -190,11 +188,8 @@ function GemCreationSection({
             </div>
           </div>
         </div>
-      ) : (
-        // 기존 수동 가공 인터페이스는 그대로 유지
-        null
-      )}
-    </div>
+      </div>
+    )
   );
 }
 

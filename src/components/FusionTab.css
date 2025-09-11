@@ -1,6 +1,12 @@
 /* FusionTab specific styles */
 /* This file contains styles specific to the FusionTab component */
 
+.fusion-tab {
+  min-width: 800px;
+  padding: 20px;
+  margin: 0 auto;
+}
+
 /* Progress Section - moved from App.css */
 .progress-section {
   background: white;

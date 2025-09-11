@@ -182,7 +182,7 @@ const ImageCapture = ({ onImageCaptured }) => {
             onClick={startCapture}
             className="capture-btn start-btn"
           >
-            📱 화면 캡처 시작
+            화면 캡처 시작
           </button>
         ) : (
           <div className="capturing-controls">
@@ -190,13 +190,13 @@ const ImageCapture = ({ onImageCaptured }) => {
               onClick={captureImage}
               className="capture-btn capture-btn-main"
             >
-              📸 캡처
+              캡처
             </button>
             <button 
               onClick={stopCapture}
               className="capture-btn stop-btn"
             >
-              ⏹️ 중지
+              중지
             </button>
           </div>
         )}

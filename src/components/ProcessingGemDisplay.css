@@ -69,9 +69,15 @@
 /* Processing Gem Section - Responsive Layout */
 .processing-gem-section {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(800px, 1fr));
+  grid-template-columns: 4fr 3fr;
   gap: 1.5rem;
   align-items: start;
+}
+
+@media (max-width: 1750px) {
+  .processing-gem-section {
+    grid-template-columns: 1fr;
+  }
 }
 
 .processing-left-column {

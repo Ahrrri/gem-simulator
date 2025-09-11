@@ -335,6 +335,8 @@
 .options-controls {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
+  gap: 1rem;
 }
 
 .mode-toggle {
@@ -1763,7 +1765,6 @@
   
   .processing-right-column {
     position: static;
-    order: -1;
   }
   
   .probability-comparison {
@@ -1782,12 +1783,8 @@
   
   .processing-right {
     position: static;
-    order: -1;
   }
-  
-  .options-status-panel {
-    max-height: 40vh;
-  }
+
   
   .options-row {
     gap: 0.3rem;
@@ -1815,13 +1812,10 @@
   }
   
   .reroll-btn {
-    width: 100%;
     text-align: center;
   }
   
   .processing-btn {
-    min-width: auto;
-    width: 100%;
     font-size: 1rem;
     padding: 0.75rem 1.5rem;
   }

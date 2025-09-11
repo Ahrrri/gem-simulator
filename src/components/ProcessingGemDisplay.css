@@ -1378,6 +1378,24 @@
   text-align: right;
 }
 
+.tooltip-option.current-reroll {
+  background-color: #fff3cd;
+  border-radius: 4px;
+  padding: 6px 8px;
+  margin: 2px 0;
+  border: 1px solid #f39c12;
+}
+
+.tooltip-option.current-reroll .tooltip-option-name {
+  color: #856404;
+  font-weight: 600;
+}
+
+.tooltip-option.current-reroll .tooltip-option-prob {
+  color: #856404;
+  font-weight: 700;
+}
+
 .calc-needed {
   color: #6c757d;
   font-style: italic;

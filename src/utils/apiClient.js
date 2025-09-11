@@ -82,8 +82,13 @@ export async function getAllGemData(gemState) {
     result.current.probabilities = formatProbabilities(result.current.probabilities);
   }
   
-  if (result.reroll?.probabilities) {
-    result.reroll.probabilities = formatProbabilities(result.reroll.probabilities);
+  if (result.rerolls) {
+    result.rerolls = result.rerolls
+      .map(reroll => ({
+        ...reroll,
+        probabilities: formatProbabilities(reroll.probabilities)
+      }))
+      .sort((a, b) => a.rerollDepth - b.rerollDepth); // rerollDepth 순서대로 정렬
   }
   
   if (result.options) {
@@ -111,7 +116,7 @@ export async function getGemData(gemState) {
     gemState.remainingAttempts,
     gemState.currentRerollAttempts || 0,
     gemState.costModifier || 0,
-    gemState.isFirstProcessing ? 1 : 0
+    gemState.isFirstProcessing !== undefined ? gemState.isFirstProcessing : (gemState.processingCount === 0 ? 1 : 0)
   ];
   
   const params = new URLSearchParams({

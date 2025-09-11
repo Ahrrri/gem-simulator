@@ -35,6 +35,8 @@ function ProcessingGemDisplay({
   const [currentData, setCurrentData] = useState(null);
   const [optionData, setOptionData] = useState(null);
   const [rerollData, setRerollData] = useState(null);
+  const [rerollsData, setRerollsData] = useState([]); // 모든 리롤 데이터 배열
+  const [currentRerollIndex, setCurrentRerollIndex] = useState(0); // 현재 표시 중인 리롤 인덱스
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [isManualOptionSampling, setIsManualOptionSampling] = useState(false);
   const [selectedOptionIndex, setSelectedOptionIndex] = useState(null);
@@ -119,7 +121,7 @@ function ProcessingGemDisplay({
   useEffect(() => {
     if (!allData) return;
     
-    updateoptionData();
+    updateOptionData();
   }, [processingGem?.autoOptionSet, isManualOptionSampling, processingGem?.manualOptionSet, allData]);
 
   // 통합 확률 조회 - 현재, 리롤, 모든 옵션을 한 번에
@@ -144,13 +146,19 @@ function ProcessingGemDisplay({
         setCurrentData(allData.current);
       }
       
-      // 리롤 확률 설정
-      if (allData.reroll) {
-        setRerollData(allData.reroll);
+      // 리롤 확률 설정 (배열로 처리)
+      if (allData.rerolls && allData.rerolls.length > 0) {
+        setRerollsData(allData.rerolls);
+        setRerollData(allData.rerolls[0]); // 첫 번째 리롤 데이터를 기본으로 표시
+        setCurrentRerollIndex(0);
+      } else {
+        setRerollsData([]);
+        setRerollData(null);
+        setCurrentRerollIndex(0);
       }
       
       // 옵션별 확률은 별도 함수에서 처리
-      updateoptionData(allData);
+      updateOptionData(allData);
     } catch (error) {
       console.error('통합 확률 조회 실패:', error);
       setCurrentData(null);
@@ -162,7 +170,7 @@ function ProcessingGemDisplay({
   };
 
   // 옵션 확률 업데이트 (기존 데이터 재활용)
-  const updateoptionData = (data = allData) => {
+  const updateOptionData = (data = allData) => {
     if (!data?.options || data.options.length === 0) {
       setOptionData(null);
       return;
@@ -201,7 +209,7 @@ function ProcessingGemDisplay({
       const avgOptionProb = validProbs.length > 0 ? validProbs.reduce((sum, p) => sum + p, 0) / validProbs.length : 0;
       
       // 리롤 확률
-      const rerollProb = parseFloat(data.reroll?.probabilities?.[target]?.percent || '0.0');
+      const rerollProb = parseFloat(rerollData?.probabilities?.[target]?.percent || '0.0');
       
       // 비교 결과
       let isOptionBetter = true;
@@ -931,10 +939,17 @@ function ProcessingGemDisplay({
                   }
                 })()}
                 onClick={() => {
+                  // 실제로 리롤 실행
                   const result = rerollProcessingOptions(processingGem);
                   if (result) {
                     setProcessingGem(result);
                     setSelectedOptionIndex(null);
+                    // 리롤 후 다음 depth의 데이터를 표시
+                    if (rerollsData && rerollsData.length > currentRerollIndex + 1) {
+                      const nextIndex = currentRerollIndex + 1;
+                      setCurrentRerollIndex(nextIndex);
+                      setRerollData(rerollsData[nextIndex]);
+                    }
                   }
                 }}
               >
@@ -1215,7 +1230,7 @@ function ProcessingGemDisplay({
                 <tr>
                   <th className="target-column">목표</th>
                   <th className="option-column">현재 옵션 기반</th>
-                  <th className="reroll-column">리롤 시</th>
+                  <th className="reroll-column">리롤 시{rerollData?.rerollDepth && ` (${rerollData.rerollDepth}회째)`}</th>
                   <th className="current-column">현재 젬 평균</th>
                   <th className="recommendation-column">추천</th>
                 </tr>
@@ -1229,7 +1244,7 @@ function ProcessingGemDisplay({
                   // 미리 계산된 비교 정보 가져오기
                   const comparison = optionData?.[0]?.targetComparisons?.[target];
                   const optionProb = comparison ? comparison.avgOptionProb.toFixed(4) : '0.0';
-                  const rerollProb = comparison ? comparison.rerollProb.toFixed(4) : '0.0';
+                  const rerollProb = rerollData?.probabilities?.[target]?.percent || '0.0';
                   const isOptionBetter = comparison ? comparison.isOptionBetter : true;
                   const isRerollBetter = comparison ? comparison.isRerollBetter : false;
                   
@@ -1316,10 +1331,36 @@ function ProcessingGemDisplay({
                           <span className="prob-unavailable">로드 중...</span>
                         ) : processingGem && processingGem.currentRerollAttempts > 0 && processingGem.processingCount > 0 ? (
                           rerollData ? (
-                            <span className={`prob-value ${isRerollBetter ? 'better' : ''}`}>
-                              {rerollProb}%
-                              {isRerollBetter && <span className="better-indicator">↑</span>}
-                            </span>
+                            <div className="prob-content">
+                              <div className="prob-main has-details">
+                                <span className={`prob-value ${isRerollBetter ? 'better' : ''}`}>
+                                  {rerollProb}%
+                                  {isRerollBetter && <span className="better-indicator">↑</span>}
+                                </span>
+                                
+                                {/* 호버 툴팁 - 리롤 체인 확률 표시 */}
+                                <div className="prob-tooltip">
+                                  <div className="tooltip-title">
+                                    리롤 횟수별 {currentData?.probabilities?.[target]?.label || target} 확률
+                                  </div>
+                                  {rerollsData.map((reroll, idx) => {
+                                    const rerollTargetProb = reroll.probabilities?.[target]?.percent || '0.0';
+                                    const isCurrentReroll = idx === currentRerollIndex;
+                                    
+                                    return (
+                                      <div key={idx} className={`tooltip-option ${isCurrentReroll ? 'current-reroll' : ''}`}>
+                                        <span className="tooltip-option-name">
+                                          {reroll.rerollDepth}회째
+                                        </span>
+                                        <span className="tooltip-option-prob">
+                                          {rerollTargetProb}%
+                                        </span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            </div>
                           ) : (
                             <span className="prob-unavailable">-</span>
                           )

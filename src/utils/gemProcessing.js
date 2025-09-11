@@ -69,6 +69,7 @@ export function createProcessingGem(mainType, subType, grade = 'UNCOMMON', combi
     maxRerollAttempts: getRerollAttempts(grade),
     currentRerollAttempts: getRerollAttempts(grade),
     processingCount: 0, // 가공 진행 횟수
+    isFirstProcessing: 1, // 첫 가공인지
     costModifier: 0, // costIncrease -> costModifier로 변경
     totalGoldSpent: 0, // 누적 가공 비용
     // Linked List 히스토리
@@ -282,6 +283,7 @@ export function applyGemAction(gem, action, targetOption = null) {
   // 가공 시 공통 처리: 횟수 감소 및 진행 횟수 증가
   newGem.remainingAttempts = Math.max(0, (newGem.remainingAttempts || 10) - 1);
   newGem.processingCount = (newGem.processingCount || 0) + 1;
+  newGem.isFirstProcessing = 0;
   
   return newGem;
 }

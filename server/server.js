@@ -244,7 +244,8 @@ app.get('/api/gem-all-probabilities', (req, res) => {
   function getRerollState(gemState) {
     return {
       ...gemState,
-      currentRerollAttempts: Math.max(0, gemState.currentRerollAttempts - 1)
+      currentRerollAttempts: Math.max(0, gemState.currentRerollAttempts - 1),
+      isFirstProcessing: 0
     };
   }
   
@@ -260,14 +261,17 @@ app.get('/api/gem-all-probabilities', (req, res) => {
   states.push({ type: 'current', gem: gem, key: currentKey });
   stateKeys.add(currentKey);
   
-  // 리롤 상태 추가
-  if (gem.currentRerollAttempts > 0) {
-    const rerollGem = getRerollState(gem);
-    const rerollKey = `${rerollGem.willpower}_${rerollGem.corePoint}_${rerollGem.dealerA}_${rerollGem.dealerB}_${rerollGem.supportA}_${rerollGem.supportB}_${rerollGem.remainingAttempts}_${rerollGem.currentRerollAttempts}_${rerollGem.costModifier}_${rerollGem.isFirstProcessing}`;
+  // 모든 리롤 상태 추가 (0회가 될 때까지)
+  let tempGem = { ...gem };
+  let rerollCount = 1;
+  while (tempGem.currentRerollAttempts > 0) {
+    tempGem = getRerollState(tempGem);
+    const rerollKey = `${tempGem.willpower}_${tempGem.corePoint}_${tempGem.dealerA}_${tempGem.dealerB}_${tempGem.supportA}_${tempGem.supportB}_${tempGem.remainingAttempts}_${tempGem.currentRerollAttempts}_${tempGem.costModifier}_${tempGem.isFirstProcessing}`;
     if (!stateKeys.has(rerollKey)) {
-      states.push({ type: 'reroll', gem: rerollGem, key: rerollKey });
+      states.push({ type: 'reroll', rerollDepth: rerollCount, gem: tempGem, key: rerollKey });
       stateKeys.add(rerollKey);
     }
+    rerollCount++;
   }
   
   // 각 옵션 적용 후 상태 추가
@@ -356,7 +360,7 @@ app.get('/api/gem-all-probabilities', (req, res) => {
         // 결과 매핑
         const result = {
           current: null,
-          reroll: null,
+          rerolls: [],
           options: [],
           availableOptions: availableOptions
         };
@@ -410,7 +414,10 @@ app.get('/api/gem-all-probabilities', (req, res) => {
             if (state.type === 'current') {
               result.current = probData;
             } else if (state.type === 'reroll') {
-              result.reroll = probData;
+              result.rerolls.push({
+                rerollDepth: state.rerollDepth,
+                ...probData
+              });
             } else if (state.type === 'option') {
               result.options.push({
                 action: state.action,

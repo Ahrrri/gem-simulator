@@ -64,7 +64,10 @@ function ProcessingTab() {
             </button>
             <button
               className={`mode-btn ${gemCreationMode === 'manual' ? 'active' : ''}`}
-              onClick={() => setGemCreationMode('manual')}
+              onClick={() => {
+                setGemCreationMode('manual');
+                setProcessingGem(null);
+              }}
             >
               수동 설정
             </button>

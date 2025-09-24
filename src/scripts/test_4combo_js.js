@@ -4,7 +4,7 @@
  * src/data/gemProcessing.js의 확률표를 그대로 사용
  */
 
-import { PROCESSING_POSSIBILITIES } from './src/utils/gemConstants.js';
+import { PROCESSING_POSSIBILITIES } from '../utils/gemConstants.js';
 
 // combinations 함수 (local-simulator.js에서 복사)
 function* combinations(arr, k) {

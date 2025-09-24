@@ -11,27 +11,21 @@
  * 4. 수렴할 때까지 반복
  */
 
-import cliProgress from 'cli-progress';
 import { Worker } from 'worker_threads';
 import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { 
-  createProcessingGem,
-  executeGemProcessing,
+  createProcessingGem
 } from '../utils/gemProcessing.js';
 import {
   GEM_PURCHASE_COSTS,
   GOALS,
   GEM_CONFIGS,
   getLocalProbabilityAndCost,
-  checkGoalAchieved,
-  loadLocalOptionProbabilities,
   closeDatabase,
-  getCacheSize,
-  smartRerollStrategy
+  getCacheSize
 } from './local_util.js';
-import { rerollProcessingOptions } from '../utils/gemProcessing.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -48,105 +42,97 @@ async function getInitialGemStats(grade, goalKey = 'sum9+') {
 }
 
 // 워커 풀 생성
-async function createWorkerPool(grade, purchaseCost, goalKey, numSimulations) {
+async function createWorkerPool(grade, purchaseCost, goalKey) {
   const numCores = os.cpus().length;
-  const simulationsPerWorker = Math.ceil(numSimulations / numCores);
   
-  console.log(`🏗️  워커 풀 생성: ${numCores}개 워커 (워커당 ${simulationsPerWorker.toLocaleString()}번 시뮬레이션)`);
+  console.log(`🏗️  워커 풀 생성: ${numCores}개 워커`);
   
   const workers = [];
   
   for (let i = 0; i < numCores; i++) {
-    const workerSimulations = i === numCores - 1 
-      ? numSimulations - (i * simulationsPerWorker) 
-      : simulationsPerWorker;
-    
-    if (workerSimulations <= 0) break;
-    
     const worker = new Worker(path.join(__dirname, 'persistent-worker.js'), {
       workerData: {
         grade,
         purchaseCost,
         goalKey,
-        simulationsPerBatch: workerSimulations
+        simulationsPerBatch: 0 // 적응형이므로 나중에 동적으로 할당
       }
     });
     
-    workers.push({ worker, simulationsPerBatch: workerSimulations });
+    workers.push({ worker });
   }
   
   return workers;
 }
 
-// 워커 풀로 시뮬레이션 실행
-async function runSimulationsWithWorkerPool(workerPool, thresholdCost, totalSimulations) {
-  console.log(`🚀 워커 풀로 병렬 처리 시작`);
+// 적응형 시뮬레이션 실행 (평균이 안정될 때까지)
+async function runAdaptiveSimulations(workerPool, thresholdCost, batchSize = 10000, minBatches = 10, maxBatches = 1000) {
+  console.log(`🚀 적응형 시뮬레이션 시작 (배치 크기: ${batchSize.toLocaleString()})`);
   
-  const progressBar = new cliProgress.SingleBar({
-    format: '진행률 |{bar}| {percentage}% | {value}/{total}',
-    barCompleteChar: '\u2588',
-    barIncompleteChar: '\u2591',
-    hideCursor: true
-  });
+  const cumulativeAvgs = []; // 누적 평균 저장
+  const stdWindow = 10; // 표준편차 윈도우 크기
+  const stdThreshold = 25; // 표준편차 임계값 (G)
   
-  progressBar.start(totalSimulations, 0);
+  let totalSimulations = 0;
+  let totalCost = 0;
+  let successCount = 0;
+  let abandonedCount = 0;
+  let successTotalCost = 0;
+  let abandonedTotalCost = 0;
+  let completedTotalCost = 0;
+  let totalProcessingAttempts = 0;
+  let successProcessingAttempts = 0;
+  let abandonedProcessingAttempts = 0;
+  let completedProcessingAttempts = 0;
   
-  const promises = [];
-  
-  for (const { worker, simulationsPerBatch } of workerPool) {
-    // MaxListeners 경고 방지
-    worker.setMaxListeners(20);
+  for (let batchNum = 0; batchNum < maxBatches; batchNum++) {
+    // 각 워커에게 배치 할당
+    const promises = [];
+    const simulationsPerWorker = Math.ceil(batchSize / workerPool.length);
     
-    const promise = new Promise((resolve, reject) => {
-      const messageHandler = (message) => {
-        if (message.type === 'progress') {
-          progressBar.increment(message.completed);
-        } else if (message.type === 'result') {
-          // 리스너 정리
+    for (const { worker } of workerPool) {
+      const promise = new Promise((resolve, reject) => {
+        const messageHandler = (message) => {
+          if (message.type === 'result') {
+            worker.off('message', messageHandler);
+            worker.off('error', errorHandler);
+            resolve(message.data);
+          }
+        };
+        
+        const errorHandler = (error) => {
           worker.off('message', messageHandler);
           worker.off('error', errorHandler);
-          resolve(message.data);
-        }
-      };
+          reject(error);
+        };
+        
+        worker.on('message', messageHandler);
+        worker.on('error', errorHandler);
+        
+        worker.postMessage({
+          type: 'simulate',
+          thresholdCost,
+          numSimulations: simulationsPerWorker
+        });
+      });
       
-      const errorHandler = (error) => {
-        // 리스너 정리
-        worker.off('message', messageHandler);
-        worker.off('error', errorHandler);
-        reject(error);
-      };
+      promises.push(promise);
+    }
+    
+    // 배치 결과 수집
+    const batchData = await Promise.all(promises);
+    
+    // 배치 결과 집계
+    let batchTotalCost = 0;
+    let batchSuccessCount = 0;
+    let batchSimulations = 0;
+    
+    for (const result of batchData) {
+      batchSimulations += result.numSimulations || simulationsPerWorker;
+      batchTotalCost += result.totalCost;
+      batchSuccessCount += result.successCount;
       
-      worker.on('message', messageHandler);
-      worker.on('error', errorHandler);
-    });
-    
-    // 워커에게 작업 할당
-    worker.postMessage({
-      type: 'simulate',
-      thresholdCost,
-      numSimulations: simulationsPerBatch
-    });
-    
-    promises.push(promise);
-  }
-  
-  try {
-    const results = await Promise.all(promises);
-    progressBar.stop();
-    
-    // 결과 집계 (기존 runSimulationsParallel과 동일)
-    let totalCost = 0;
-    let successCount = 0;
-    let abandonedCount = 0;
-    let successTotalCost = 0;
-    let abandonedTotalCost = 0;
-    let completedTotalCost = 0;
-    let totalProcessingAttempts = 0;
-    let successProcessingAttempts = 0;
-    let abandonedProcessingAttempts = 0;
-    let completedProcessingAttempts = 0;
-    
-    for (const result of results) {
+      // 전체 통계 업데이트
       totalCost += result.totalCost;
       successCount += result.successCount;
       abandonedCount += result.abandonedCount;
@@ -159,23 +145,48 @@ async function runSimulationsWithWorkerPool(workerPool, thresholdCost, totalSimu
       completedProcessingAttempts += result.completedProcessingAttempts || 0;
     }
     
-    const avgCostPerSuccess = successCount > 0 ? totalCost / successCount : Infinity;
-    const failedCount = totalSimulations - successCount;
-    const completedCount = failedCount - abandonedCount;
+    totalSimulations += batchSimulations;
     
-    console.log(`\n📊 시뮬레이션 결과 (임계값: ${Math.round(thresholdCost).toLocaleString()}G):`);
-    console.log(`   성공: ${successCount}/${totalSimulations} (${(successCount/totalSimulations*100).toFixed(2)}%) - 젬당 평균 소모: ${successCount > 0 ? Math.round(successTotalCost / successCount).toLocaleString() : 0}G - 평균 가공횟수: ${successCount > 0 ? (successProcessingAttempts / successCount).toFixed(2) : 0}회`);
-    console.log(`   실패: ${failedCount}/${totalSimulations} (${(failedCount/totalSimulations*100).toFixed(2)}%)`);
-    console.log(`     - 포기: ${abandonedCount} (${(abandonedCount/totalSimulations*100).toFixed(2)}%) - 젬당 평균 소모: ${abandonedCount > 0 ? Math.round(abandonedTotalCost / abandonedCount).toLocaleString() : 0}G - 평균 가공횟수: ${abandonedCount > 0 ? (abandonedProcessingAttempts / abandonedCount).toFixed(2) : 0}회`);
-    console.log(`     - 끝까지 가공: ${completedCount} (${(completedCount/totalSimulations*100).toFixed(2)}%) - 젬당 평균 소모: ${completedCount > 0 ? Math.round(completedTotalCost / completedCount).toLocaleString() : 0}G - 평균 가공횟수: ${completedCount > 0 ? (completedProcessingAttempts / completedCount).toFixed(2) : 0}회`);
-    console.log(`   젬당 평균 비용 소모: ${Math.round(totalCost/totalSimulations).toLocaleString()}G`);
-    console.log(`   목표당 평균 비용: ${Math.round(avgCostPerSuccess).toLocaleString()}G - 전체 평균 가공횟수: ${totalSimulations > 0 ? (totalProcessingAttempts / totalSimulations).toFixed(2) : 0}회`);
+    // 현재 전체 누적 평균
+    const currentAvgCost = successCount > 0 ? totalCost / successCount : Infinity;
+    cumulativeAvgs.push(currentAvgCost);
     
-    return avgCostPerSuccess;
-  } catch (error) {
-    progressBar.stop();
-    throw error;
+    // 윈도우 표준편차 계산 (최소 배치 수 이후)
+    if (batchNum >= minBatches - 1 && cumulativeAvgs.length >= stdWindow) {
+      // 최근 stdWindow개 배치의 표준편차 계산
+      const windowStart = Math.max(0, cumulativeAvgs.length - stdWindow);
+      const windowAvgs = cumulativeAvgs.slice(windowStart);
+      
+      const windowMean = windowAvgs.reduce((a, b) => a + b, 0) / windowAvgs.length;
+      const variance = windowAvgs.reduce((sum, val) => sum + Math.pow(val - windowMean, 2), 0) / windowAvgs.length;
+      const stdDev = Math.sqrt(variance);
+      
+      console.log(`📈 배치 ${batchNum + 1}: 시뮬레이션=${batchSimulations.toLocaleString()}회 (누적 ${totalSimulations.toLocaleString()}회), 평균=${Math.round(currentAvgCost).toLocaleString()}G, StdDev=${Math.round(stdDev).toLocaleString()}G, 성공률=${(successCount/totalSimulations*100).toFixed(3)}%`);
+      
+      // 수렴 판단: 표준편차가 임계값보다 작으면 안정적
+      if (stdDev < stdThreshold && batchNum >= minBatches) {
+        console.log(`\n✅ 수렴 달성! (윈도우 표준편차: ${Math.round(stdDev).toLocaleString()}G < ${stdThreshold.toLocaleString()}G)`);
+        break;
+      }
+    } else {
+      const status = cumulativeAvgs.length < stdWindow ? `윈도우 구축 중... (${cumulativeAvgs.length}/${stdWindow})` : '초기화 중...';
+      console.log(`📈 배치 ${batchNum + 1}: 시뮬레이션=${batchSimulations.toLocaleString()}회 (누적 ${totalSimulations.toLocaleString()}회), 평균=${Math.round(currentAvgCost).toLocaleString()}G, 성공률=${(successCount/totalSimulations*100).toFixed(3)}% (${status})`);
+    }
   }
+  
+  const avgCostPerSuccess = successCount > 0 ? totalCost / successCount : Infinity;
+  const failedCount = totalSimulations - successCount;
+  const completedCount = failedCount - abandonedCount;
+  
+  console.log(`\n📊 시뮬레이션 결과 (임계값: ${Math.round(thresholdCost).toLocaleString()}G):`);
+  console.log(`   총 시뮬레이션: ${totalSimulations.toLocaleString()}회 (${cumulativeAvgs.length}개 배치)`);
+  console.log(`   성공: ${successCount}/${totalSimulations} (${(successCount/totalSimulations*100).toFixed(2)}%)`);
+  console.log(`   실패: ${failedCount}/${totalSimulations} (${(failedCount/totalSimulations*100).toFixed(2)}%)`);
+  console.log(`     - 포기: ${abandonedCount} (${(abandonedCount/totalSimulations*100).toFixed(2)}%)`);
+  console.log(`     - 끝까지: ${completedCount} (${(completedCount/totalSimulations*100).toFixed(2)}%)`);
+  console.log(`   목표당 평균 비용: ${Math.round(avgCostPerSuccess).toLocaleString()}G`);
+  
+  return avgCostPerSuccess;
 }
 
 // 워커 풀 종료
@@ -187,8 +198,8 @@ async function terminateWorkerPool(workerPool) {
   }
 }
 
-// 최적 임계값 찾기 (고정점 반복법) - 개선된 버전
-async function findOptimalThreshold(grade, purchaseCost, goalKey = 'sum9+', maxIterations = 100, tolerance = 5, numSimulations = 500000) {
+// 최적 임계값 찾기 (고정점 반복법) - 적응형 버전
+async function findOptimalThreshold(grade, purchaseCost, goalKey = 'sum9+', maxIterations = 100, tolerance = 100, batchSize = 10000) {
   // DB에서 초기 상태 조회
   const { initialSuccessRate, initialProcessingCost } = await getInitialGemStats(grade, goalKey);
   
@@ -200,16 +211,20 @@ async function findOptimalThreshold(grade, purchaseCost, goalKey = 'sum9+', maxI
   console.log(`💰 젬 구매비용: ${purchaseCost.toLocaleString()}G`);
   console.log(`🎲 초기 성공률: ${(initialSuccessRate * 100).toFixed(4)}%`);
   console.log(`⚙️  초기 가공비용: ${Math.round(initialProcessingCost).toLocaleString()}G`);
+  console.log(`📦 배치 크기: ${batchSize.toLocaleString()} 시뮬레이션/배치`);
   
   const results = [];
+  let previousThresholds = []; // 최근 임계값들 저장
+  const historySize = 5; // 최근 5개 임계값 추적
   
   // 워커 재사용을 위한 워커 풀 생성
-  const workerPool = await createWorkerPool(grade, purchaseCost, goalKey, numSimulations);
+  const workerPool = await createWorkerPool(grade, purchaseCost, goalKey);
   
   for (let iteration = 1; iteration <= maxIterations; iteration++) {
     console.log(`\n🔄 반복 ${iteration}/${maxIterations}`);
     
-    const avgCost = await runSimulationsWithWorkerPool(workerPool, thresholdCost, numSimulations);
+    // 적응형 시뮬레이션 실행
+    const avgCost = await runAdaptiveSimulations(workerPool, thresholdCost, batchSize);
     
     if (avgCost === Infinity) {
       console.log('❌ 모든 시뮬레이션이 실패했습니다. 임계값을 높입니다.');
@@ -217,7 +232,7 @@ async function findOptimalThreshold(grade, purchaseCost, goalKey = 'sum9+', maxI
       continue;
     }
     
-    const newThreshold = avgCost; // 1% 당 비용으로 변환
+    const newThreshold = avgCost;
     const change = newThreshold - thresholdCost;
     
     results.push({
@@ -228,27 +243,49 @@ async function findOptimalThreshold(grade, purchaseCost, goalKey = 'sum9+', maxI
       change
     });
     
-    console.log(`🎯 새로운 임계값: ${Math.round(newThreshold).toLocaleString()}G (변화: ${change.toFixed(1)}G)`);
-
-    thresholdCost = newThreshold;
-
-    // 수렴 체크
-    if (Math.abs(change) < tolerance) {
-      console.log(`\n✅ 수렴 완료! (변화량 < ${tolerance}G)`);
-      break;
+    console.log(`🎯 새로운 임계값: ${Math.round(newThreshold).toLocaleString()}G (변화: ${change > 0 ? '+' : ''}${change.toFixed(1)}G)`);
+    
+    // 이전 임계값들 기록
+    previousThresholds.push(newThreshold);
+    if (previousThresholds.length > historySize) {
+      previousThresholds.shift();
     }
     
+    // 최근 임계값들의 변동 확인
+    if (previousThresholds.length >= historySize) {
+      const avgThreshold = previousThresholds.reduce((a, b) => a + b, 0) / previousThresholds.length;
+      const variance = previousThresholds.reduce((sum, val) => sum + Math.pow(val - avgThreshold, 2), 0) / previousThresholds.length;
+      const stdDev = Math.sqrt(variance);
+      
+      console.log(`📊 최근 ${historySize}개 임계값 평균: ${Math.round(avgThreshold).toLocaleString()}G (표준편차: ${Math.round(stdDev).toLocaleString()}G)`);
+      
+      // 수렴 체크 - 표준편차가 tolerance 이하
+      if (stdDev < tolerance) {
+        console.log(`\n✅ 수렴 완료! (표준편차 ${Math.round(stdDev).toLocaleString()}G < ${tolerance}G)`);
+        thresholdCost = avgThreshold; // 평균값 사용
+        break;
+      }
+    }
+    
+    thresholdCost = newThreshold;
   }
   
   // 결과 출력
   console.log(`\n📊 최종 결과:`);
-  console.log(`🎯 최적 임계값: ${thresholdCost.toLocaleString()}G`);
-  console.log(`💸 예상 평균비용: ${results[results.length-1].avgCost.toLocaleString()}G`);
+  console.log(`🎯 최적 임계값: ${Math.round(thresholdCost).toLocaleString()}G`);
+  console.log(`💸 예상 평균비용: ${Math.round(results[results.length-1].avgCost).toLocaleString()}G`);
   
-  console.log(`\n📈 수렴 과정:`);
-  results.forEach(r => {
-    console.log(`   반복 ${r.iteration}: ${r.threshold.toLocaleString()}G → 새 임계값 ${r.newThreshold.toLocaleString()}G`);
-  });
+  if (results.length > 10) {
+    console.log(`\n📈 수렴 과정 (최근 10개):`);
+    results.slice(-10).forEach(r => {
+      console.log(`   반복 ${r.iteration}: ${Math.round(r.threshold).toLocaleString()}G → ${Math.round(r.newThreshold).toLocaleString()}G`);
+    });
+  } else {
+    console.log(`\n📈 수렴 과정:`);
+    results.forEach(r => {
+      console.log(`   반복 ${r.iteration}: ${Math.round(r.threshold).toLocaleString()}G → ${Math.round(r.newThreshold).toLocaleString()}G`);
+    });
+  }
   
   // 워커 풀 정리
   await terminateWorkerPool(workerPool);
@@ -263,7 +300,7 @@ async function findOptimalThreshold(grade, purchaseCost, goalKey = 'sum9+', maxI
 // 메인 함수
 async function main() {
   try {
-    console.log('🚀 최적 젬 가공 전략 계산기');
+    console.log('🚀 최적 젬 가공 전략 계산기 (적응형 버전)');
     console.log('=' .repeat(50));
     
     // 명령행 인자 파싱
@@ -271,7 +308,7 @@ async function main() {
     const grade = args[0] ? args[0].toUpperCase() : 'RARE'; // 기본값 RARE
     const goalKey = args[1] ? args[1] : 'sum9+'; // 기본값 sum9+
     let purchaseCost = args[2] ? parseInt(args[2]) : null; // 구매 비용
-    const numSimulations = args[3] ? parseInt(args[3]) : 1000; // 기본값 1000번
+    const batchSize = args[3] ? parseInt(args[3]) : 10000; // 배치 크기 (기본값 10000)
     
     // 젬 등급 유효성 검사
     if (!GEM_CONFIGS[grade]) {
@@ -296,16 +333,18 @@ async function main() {
     console.log(`💎 젬 등급: ${grade}`);
     console.log(`🎯 목표: ${goalKey} (${GOALS[goalKey]})`);
     console.log(`💰 젬 구매 비용: ${purchaseCost.toLocaleString()}G`);
-    console.log(`🔄 시뮬레이션 횟수: ${numSimulations.toLocaleString()}번`);
-    console.log(`⚡ 처리 방식: 멀티코어 병렬 (${os.cpus().length}코어)`);
+    console.log(`📦 배치 크기: ${batchSize.toLocaleString()}회/배치`);
+    console.log(`⚡ 처리 방식: 적응형 멀티코어 병렬 (${os.cpus().length}코어)`);
+    console.log(`📊 수렴 기준: 누적 평균이 안정될 때까지 지속(배치 단위로 체크)`);
     
     // 선택된 젬 등급과 목표로 분석
-    const result = await findOptimalThreshold(grade, purchaseCost, goalKey, 100, 0.1, numSimulations);
+    const result = await findOptimalThreshold(grade, purchaseCost, goalKey, 100, 100, batchSize);
     
     console.log('\n' + '='.repeat(50));
     console.log('🏆 최종 권장 전략:');
-    console.log(`${grade} 젬 ${goalKey} 목표: 예상비용/확률이 ${result.optimalThreshold.toLocaleString()}G를 초과하면 포기`);
-    console.log(`예상 평균 비용: ${result.expectedCost.toLocaleString()}G`);
+    console.log(`${grade} 젬 ${goalKey} 목표: 예상비용/확률이 ${Math.round(result.optimalThreshold).toLocaleString()}G를 초과하면 포기`);
+    console.log(`예상 평균 비용: ${Math.round(result.expectedCost).toLocaleString()}G`);
+    console.log(`총 반복 횟수: ${result.iterations}회`);
     console.log(`캐시 크기: ${getCacheSize().toLocaleString()}개 항목`);
     
   } catch (error) {

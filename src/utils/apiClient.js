@@ -3,6 +3,9 @@
  * SQLite 데이터베이스 API와 통신
  */
 
+// 공유 설정에서 타겟 정보 import
+import { getTargets } from './gemConstants.js';
+
 const API_BASE_URL = (typeof import.meta.env !== 'undefined' && import.meta.env.VITE_API_URL) || 'http://localhost:3001';
 
 class ApiError extends Error {
@@ -128,25 +131,27 @@ export async function getGemData(gemState) {
 }
 
 /**
- * 확률 데이터를 사용자 친화적 형태로 포맷
+ * 확률 데이터를 사용자 친화적 형태로 포맷 (동적)
  */
 export function formatProbabilities(probabilities) {
   if (!probabilities) return null;
 
-  const result = {
-    '5/5': { value: probabilities.prob_5_5, label: '5/5', percent: (probabilities.prob_5_5 * 100).toFixed(4) },
-    '5/4': { value: probabilities.prob_5_4, label: '5/4+', percent: (probabilities.prob_5_4 * 100).toFixed(4) },
-    '4/5': { value: probabilities.prob_4_5, label: '4/5+', percent: (probabilities.prob_4_5 * 100).toFixed(4) },
-    '5/3': { value: probabilities.prob_5_3, label: '5/3+', percent: (probabilities.prob_5_3 * 100).toFixed(4) },
-    '4/4': { value: probabilities.prob_4_4, label: '4/4+', percent: (probabilities.prob_4_4 * 100).toFixed(4) },
-    '3/5': { value: probabilities.prob_3_5, label: '3/5+', percent: (probabilities.prob_3_5 * 100).toFixed(4) },
-    'sum8+': { value: probabilities.prob_sum8, label: '합 8+', percent: (probabilities.prob_sum8 * 100).toFixed(4) },
-    'sum9+': { value: probabilities.prob_sum9, label: '합 9+', percent: (probabilities.prob_sum9 * 100).toFixed(4) },
-    'relic+': { value: probabilities.prob_relic, label: '유물+', percent: (probabilities.prob_relic * 100).toFixed(4) },
-    'ancient+': { value: probabilities.prob_ancient, label: '고대', percent: (probabilities.prob_ancient * 100).toFixed(4) },
-    'dealer_complete': { value: probabilities.prob_dealer_complete, label: '딜러 종결', percent: (probabilities.prob_dealer_complete * 100).toFixed(4) },
-    'support_complete': { value: probabilities.prob_support_complete, label: '서폿 종결', percent: (probabilities.prob_support_complete * 100).toFixed(4) }
-  };
+  const result = {};
+  const targets = getTargets(); // 동적으로 로드된 타겟 사용
+  
+  // 공유 설정의 TARGETS를 이용하여 동적으로 포맷
+  for (const [targetName, targetInfo] of Object.entries(targets)) {
+    const columnName = targetInfo.columnName;
+    const probabilityKey = `prob_${columnName}`;
+    
+    if (probabilities[probabilityKey] !== undefined) {
+      result[targetName] = {
+        value: probabilities[probabilityKey],
+        label: targetInfo.label,
+        percent: (probabilities[probabilityKey] * 100).toFixed(4)
+      };
+    }
+  }
   
   return result;
 }

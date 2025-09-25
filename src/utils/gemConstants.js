@@ -278,6 +278,72 @@ export const getProcessingAttempts = (grade) => {
 // 젬 가공 기본 비용 (골드)
 export const PROCESSING_COST = 900;
 
+// 동적 타겟 로더 - targets.json에서 조건을 JavaScript 함수로 변환
+function createConditionFunction(conditionString) {
+  return (gem) => {
+    try {
+      // 안전하게 표현식 평가 (제한된 범위에서)
+      const willpower = gem.willpower || 0;
+      const corePoint = gem.corePoint || 0;
+      const dealerA = gem.dealerA || 0;
+      const dealerB = gem.dealerB || 0;
+      const supportA = gem.supportA || 0;
+      const supportB = gem.supportB || 0;
+      
+      // conditionString을 Function constructor로 안전하게 실행
+      const func = new Function('willpower', 'corePoint', 'dealerA', 'dealerB', 'supportA', 'supportB', 
+        `return ${conditionString}`);
+      return func(willpower, corePoint, dealerA, dealerB, supportA, supportB, Math.max, Math.min);
+    } catch (e) {
+      console.warn('Expression evaluation failed:', conditionString, e);
+      return false;
+    }
+  };
+}
+
+// 공유 설정을 로드하고 JavaScript 조건 함수를 생성
+export async function loadTargetsConfig() {
+  try {
+    const response = await fetch('/targets.json');
+    const config = await response.json();
+    
+    const targets = {};
+    
+    for (const [targetName, targetInfo] of Object.entries(config.targets)) {
+      targets[targetName] = {
+        condition: createConditionFunction(targetInfo.condition),
+        label: targetInfo.label,
+        columnName: targetInfo.columnName
+      };
+    }
+    
+    return targets;
+  } catch (error) {
+    console.error('Failed to load targets config:', error);
+    return {};
+  }
+}
+
+// 캐시된 타겟 설정
+let cachedTargets = null;
+
+// 동기적으로 TARGETS에 접근할 수 있도록 하는 getter
+export function getTargets() {
+  if (!cachedTargets) {
+    console.warn('Targets not loaded yet. Call loadTargetsConfig() first.');
+    return {};
+  }
+  return cachedTargets;
+}
+
+// 타겟 설정 초기화
+export function initializeTargets() {
+  return loadTargetsConfig().then(targets => {
+    cachedTargets = targets;
+    return targets;
+  });
+}
+
 export default {
   GEM_TYPES,
   GEM_EFFECTS,
@@ -293,5 +359,9 @@ export default {
   ANCIENT_POINT_DISTRIBUTION,
   PROCESSING_COST,
   getRerollAttempts,
-  getProcessingAttempts
+  getProcessingAttempts,
+  // 동적 타겟 관련 함수들
+  loadTargetsConfig,
+  getTargets,
+  initializeTargets
 };

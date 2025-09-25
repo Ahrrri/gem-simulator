@@ -22,9 +22,27 @@ const PORT = process.env.PORT || 3001;
 // SQLite 데이터베이스 연결
 let db = null;
 
+// 타겟 설정 로드
+let targetConfig = null;
+
+function loadTargetConfig() {
+  try {
+    const configPath = join(__dirname, '../src/utils/targets.json');
+    const configData = fs.readFileSync(configPath, 'utf8');
+    targetConfig = JSON.parse(configData);
+    console.log('✅ 타겟 설정 로드 완료');
+  } catch (error) {
+    console.error('❌ 타겟 설정 로드 실패:', error.message);
+    process.exit(1);
+  }
+}
+
 // 미들웨어 설정
 app.use(cors());
 app.use(express.json());
+
+// 타겟 설정 파일을 정적으로 서빙
+app.use('/targets.json', express.static(join(__dirname, '../src/utils/targets.json')));
 
 // 데이터베이스 초기화
 function initDatabase() {
@@ -87,10 +105,13 @@ app.get('/api/gem-probabilities', (req, res) => {
   const [willpower, corePoint, dealerA, dealerB, supportA, supportB,
          remainingAttempts, currentRerollAttempts = 0, costModifier = 0, isFirstProcessing = 0] = values;
   
+  // 동적으로 확률 컬럼 생성
+  const probColumns = Object.entries(targetConfig.targets).map(([targetName, targetInfo]) => {
+    return `prob_${targetInfo.columnName}`;
+  }).join(', ');
+  
   const query = `
-    SELECT id, prob_5_5, prob_5_4, prob_4_5, prob_5_3, prob_4_4, prob_3_5,
-           prob_sum8, prob_sum9, prob_relic, prob_ancient, 
-           prob_dealer_complete, prob_support_complete
+    SELECT id, ${probColumns}
     FROM goal_probabilities 
     WHERE willpower = ? AND corePoint = ? 
       AND dealerA = ? AND dealerB = ? AND supportA = ? AND supportB = ?
@@ -302,12 +323,15 @@ app.get('/api/gem-all-probabilities', (req, res) => {
     );
   }
   
+  // 동적으로 확률 컬럼 생성
+  const probColumns = Object.entries(targetConfig.targets).map(([targetName, targetInfo]) => {
+    return `prob_${targetInfo.columnName}`;
+  }).join(', ');
+
   const query = `
     SELECT id, willpower, corePoint, dealerA, dealerB, supportA, supportB,
            remainingAttempts, currentRerollAttempts, costModifier, isFirstProcessing,
-           prob_5_5, prob_5_4, prob_4_5, prob_5_3, prob_4_4, prob_3_5,
-           prob_sum8, prob_sum9, prob_relic, prob_ancient,
-           prob_dealer_complete, prob_support_complete
+           ${probColumns}
     FROM goal_probabilities 
     WHERE (willpower, corePoint, dealerA, dealerB, supportA, supportB, 
            remainingAttempts, currentRerollAttempts, costModifier, isFirstProcessing) 
@@ -390,22 +414,16 @@ app.get('/api/gem-all-probabilities', (req, res) => {
             // available options 구조화
             const availableOptions = optionRows.filter(o => o.gem_state_id === row.id);
             
+            // 동적으로 확률 데이터 생성
+            const probabilities = {};
+            Object.entries(targetConfig.targets).forEach(([targetName, targetInfo]) => {
+              const columnName = `prob_${targetInfo.columnName}`;
+              probabilities[columnName] = row[columnName];
+            });
+
             const probData = {
               gem: state.gem,
-              probabilities: {
-                prob_5_5: row.prob_5_5,
-                prob_5_4: row.prob_5_4,
-                prob_4_5: row.prob_4_5,
-                prob_5_3: row.prob_5_3,
-                prob_4_4: row.prob_4_4,
-                prob_3_5: row.prob_3_5,
-                prob_sum8: row.prob_sum8,
-                prob_sum9: row.prob_sum9,
-                prob_relic: row.prob_relic,
-                prob_ancient: row.prob_ancient,
-                prob_dealer_complete: row.prob_dealer_complete,
-                prob_support_complete: row.prob_support_complete
-              },
+              probabilities,
               percentiles,
               expectedCosts,
               availableOptions
@@ -458,6 +476,7 @@ app.get('/api/available-options/:gemStateId', (req, res) => {
 // 서버 시작
 async function startServer() {
   try {
+    loadTargetConfig(); // 타겟 설정 먼저 로드
     await initDatabase();
     
     // SSL 인증서 경로 설정

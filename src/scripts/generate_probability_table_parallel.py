@@ -1,27 +1,22 @@
 #!/usr/bin/env python3
 """
-젬 가공 확률 테이블을 사전 계산하여 저장하는 스크립트
+젬 가공 확률 테이블을 멀티코어를 활용하여 병렬로 계산하는 스크립트
 """
 
 import time
-import sys
-import inspect
-import threading
 import sqlite3
-import numpy as np
-import matplotlib
-import matplotlib.pyplot as plt
 import random
-from matplotlib.colors import LinearSegmentedColormap, ListedColormap
-from typing import Dict, Any, Tuple, List
+import os
+import json
+import multiprocessing as mp
+from typing import Dict, List
 from dataclasses import dataclass
 from itertools import combinations, permutations
-from math import comb
-import json
+from multiprocessing import Manager, Pool
+from functools import partial
 
 # 상수 정의
-MAX_REROLL_ATTEMPTS = 3  # 전체 상태 생성 시 고려하는 최대 리롤 횟수 (0~6)
-MAX_REROLL_FOR_MEMOIZATION = MAX_REROLL_ATTEMPTS - 1  # 메모이제이션 효율성을 위한 리롤 횟수 상한 (6)
+MAX_REROLL_ATTEMPTS = 6  # 전체 상태 생성 시 고려하는 최대 리롤 횟수 (0~6)
 
 # 젬 가공 관련 상수
 PROCESSING_COST = 900  # 기본 가공 비용 (골드)
@@ -33,14 +28,6 @@ VALID_FIRST_PROCESSING_COMBINATIONS = [
     (7, 1),   # 희귀 젬: 7회 가공, 1회 리롤  
     (9, 2)    # 영웅 젬: 9회 가공, 2회 리롤
 ]
-import shutil
-import os
-
-try:
-    import cv2
-    CV2_AVAILABLE = True
-except ImportError:
-    CV2_AVAILABLE = False
 
 # 젬 가공 확률 테이블 (4개 옵션 시스템)
 PROCESSING_POSSIBILITIES = {
@@ -94,6 +81,46 @@ PROCESSING_POSSIBILITIES = {
     'reroll_+1': {'probability': 0.0250, 'condition': 'remainingAttempts > 1'},
     'reroll_+2': {'probability': 0.0075, 'condition': 'remainingAttempts > 1'}
 }
+
+# 목표 정의 중앙화 (확장 가능한 구조)
+# 공유 설정 파일에서 타겟 설정 로드
+def load_targets_config():
+    """공유 설정 파일에서 타겟 정의를 로드하고 람다 함수로 변환"""
+    config_path = os.path.join(os.path.dirname(__file__), '../utils/targets.json')
+    with open(config_path, 'r', encoding='utf-8') as f:
+        config = json.load(f)
+    
+    targets = {}
+    target_configs = config['targets']
+    
+    def create_condition_function(condition_string):
+        """조건 문자열에서 람다 함수를 동적으로 생성"""
+        def evaluate_expression(gem):
+            # 젬 속성을 지역 변수로 노출
+            local_vars = {
+                'willpower': gem.willpower,
+                'corePoint': gem.corePoint,
+                'dealerA': gem.dealerA or 0,
+                'dealerB': gem.dealerB or 0,
+                'supportA': gem.supportA or 0,
+                'supportB': gem.supportB or 0,
+            }
+            try:
+                # && 를 and로, || 를 or로 변환
+                python_condition = condition_string.replace('&&', ' and ').replace('||', ' or ')
+                return eval(python_condition, {"__builtins__": {}}, local_vars)
+            except:
+                return False
+        return evaluate_expression
+    
+    # 각 타겟을 동적으로 생성된 람다 함수로 변환
+    for target_name, target_info in target_configs.items():
+        if 'condition' in target_info:
+            targets[target_name] = create_condition_function(target_info['condition'])
+    
+    return targets, target_configs
+
+TARGETS, TARGET_CONFIG = load_targets_config()
 
 @dataclass
 class GemState:
@@ -254,8 +281,14 @@ def get_available_options(gem: GemState) -> list:
             })
     return options
 
-def apply_processing(gem: GemState, action: str) -> GemState:
-    """가공 옵션을 적용하여 새로운 젬 상태를 반환 (4개 옵션 시스템)"""
+def apply_processing(gem: GemState, action: str, target_option: str = None) -> GemState: # type: ignore
+    """가공 옵션을 적용하여 새로운 젬 상태를 반환 (4개 옵션 시스템)
+    
+    Args:
+        gem: 현재 젬 상태
+        action: 적용할 액션
+        target_option: 옵션 변경 시 타겟 옵션 (None이면 랜덤 선택)
+    """
     
     new_gem = GemState(
         willpower=gem.willpower,
@@ -292,16 +325,6 @@ def apply_processing(gem: GemState, action: str) -> GemState:
         elif '-' in action:
             change = int(action.split('-')[1])
             new_gem.dealerA = max(1, new_gem.dealerA - change)
-        elif action == 'dealerA_change':
-            # 4개 옵션 중에서 현재 0인 다른 옵션으로 이동
-            current_options = ['dealerA', 'dealerB', 'supportA', 'supportB']
-            inactive_options = [opt for opt in current_options if getattr(new_gem, opt) == 0]
-            
-            if inactive_options:
-                current_level = new_gem.dealerA
-                random_inactive = random.choice(inactive_options)
-                new_gem.dealerA = 0
-                setattr(new_gem, random_inactive, current_level)
     elif action.startswith('dealerB_'):
         if '+' in action:
             change = int(action.split('+')[1])
@@ -309,15 +332,6 @@ def apply_processing(gem: GemState, action: str) -> GemState:
         elif '-' in action:
             change = int(action.split('-')[1])
             new_gem.dealerB = max(1, new_gem.dealerB - change)
-        elif action == 'dealerB_change':
-            current_options = ['dealerA', 'dealerB', 'supportA', 'supportB']
-            inactive_options = [opt for opt in current_options if getattr(new_gem, opt) == 0]
-            
-            if inactive_options:
-                current_level = new_gem.dealerB
-                random_inactive = random.choice(inactive_options)
-                new_gem.dealerB = 0
-                setattr(new_gem, random_inactive, current_level)
     elif action.startswith('supportA_'):
         if '+' in action:
             change = int(action.split('+')[1])
@@ -325,15 +339,6 @@ def apply_processing(gem: GemState, action: str) -> GemState:
         elif '-' in action:
             change = int(action.split('-')[1])
             new_gem.supportA = max(1, new_gem.supportA - change)
-        elif action == 'supportA_change':
-            current_options = ['dealerA', 'dealerB', 'supportA', 'supportB']
-            inactive_options = [opt for opt in current_options if getattr(new_gem, opt) == 0]
-            
-            if inactive_options:
-                current_level = new_gem.supportA
-                random_inactive = random.choice(inactive_options)
-                new_gem.supportA = 0
-                setattr(new_gem, random_inactive, current_level)
     elif action.startswith('supportB_'):
         if '+' in action:
             change = int(action.split('+')[1])
@@ -341,15 +346,6 @@ def apply_processing(gem: GemState, action: str) -> GemState:
         elif '-' in action:
             change = int(action.split('-')[1])
             new_gem.supportB = max(1, new_gem.supportB - change)
-        elif action == 'supportB_change':
-            current_options = ['dealerA', 'dealerB', 'supportA', 'supportB']
-            inactive_options = [opt for opt in current_options if getattr(new_gem, opt) == 0]
-            
-            if inactive_options:
-                current_level = new_gem.supportB
-                random_inactive = random.choice(inactive_options)
-                new_gem.supportB = 0
-                setattr(new_gem, random_inactive, current_level)
     elif action.startswith('cost_'):
         if '+' in action:
             change = int(action.split('+')[1])
@@ -361,6 +357,23 @@ def apply_processing(gem: GemState, action: str) -> GemState:
         change = int(action.split('+')[1])
         # 실제 리롤 횟수는 제한 없이 증가 가능 (메모이제이션 키에서만 제한)
         new_gem.currentRerollAttempts = new_gem.currentRerollAttempts + change
+    elif action.endswith('_change'):
+        # 모든 옵션 변경 액션 통합 처리
+        changing_option = action.replace('_change', '')
+        current_options = ['dealerA', 'dealerB', 'supportA', 'supportB']
+        inactive_options = [opt for opt in current_options if getattr(new_gem, opt) == 0]
+        
+        if inactive_options and hasattr(new_gem, changing_option):
+            current_level = getattr(new_gem, changing_option)
+            if target_option and target_option in inactive_options:
+                # 지정된 타겟 옵션 사용
+                setattr(new_gem, changing_option, 0)
+                setattr(new_gem, target_option, current_level)
+            else:
+                # 랜덤 선택 (기존 방식)
+                random_inactive = random.choice(inactive_options)
+                setattr(new_gem, changing_option, 0)
+                setattr(new_gem, random_inactive, current_level)
     
     return new_gem
 
@@ -388,288 +401,8 @@ def calculate_4combo_probability(combo_indices: List[int], all_weights: List[flo
     
     return combo_total_prob
 
-# 진행 상황 추적을 위한 전역 변수
-calculation_counter = 0
+# 진행 상황 추적을 위한 변수 (병렬 환경에서는 메인 프로세스에서만 사용)
 start_time = None
-
-class ProgressVisualizer:
-    def __init__(self, max_attempts=10, max_rerolls=5):
-        self.max_attempts = max_attempts
-        self.max_rerolls = max_rerolls
-        
-        # 각 셀당 서브그리드 크기 (costModifier=3, willpower*corePoint=25, 4options=150)
-        # 실제 상태 수: 3 * 5 * 5 * 150 = 11,250개
-        # 125 * 90 = 11,250개로 정확히 맞춤
-        self.sub_grid_width = 125
-        self.sub_grid_height = 90
-        
-        # 전체 이미지 크기
-        self.image_width = max_attempts * self.sub_grid_width
-        self.image_height = max_rerolls * self.sub_grid_height
-        
-        # 진행 상황 배열 (0: 미완료, 1: 계산 완료, 2: 메모이제이션 히트)
-        self.progress = np.zeros((self.image_height, self.image_width))
-        
-        # matplotlib 설정 (headless mode)
-        matplotlib.use('Agg')  # GUI 없이 이미지만 생성
-        plt.ioff()  # 비인터랙티브 모드
-        self.fig, self.ax = plt.subplots(figsize=(15, 8), dpi=100)
-        
-        # 커스텀 컬러맵: 0(검은색)=미완료, 1(초록색)=계산완료, 2(파란색)=메모히트
-        colors = ['black', 'green', 'blue']
-        custom_cmap = ListedColormap(colors)
-        
-        self.im = self.ax.imshow(self.progress, cmap=custom_cmap, vmin=0, vmax=2)
-        
-        # 실시간 영상 생성 설정
-        self.frame_counter = 0
-        self.video_writer = None
-        self.output_filename = "gem_calculation_progress.mp4"
-        self.fps = 60
-        
-        # OpenCV 비디오 라이터 초기화
-        if CV2_AVAILABLE:
-            try:
-                # 이미지 크기 결정 (matplotlib figure 크기 기반)
-                self.fig.canvas.draw()
-                # Agg backend를 사용하여 배열 가져오기
-                canvas = self.fig.canvas
-                width, height = canvas.get_width_height()
-                buf = np.frombuffer(canvas.buffer_rgba(), dtype=np.uint8) # type: ignore
-                buf = buf.reshape((height, width, 4))  # RGBA
-                buf_rgb = buf[:, :, :3]  # RGB로 변환
-                height, width = buf_rgb.shape[:2]
-                
-                # 비디오 라이터 생성
-                fourcc = cv2.VideoWriter_fourcc(*'mp4v') # type: ignore
-                self.video_writer = cv2.VideoWriter(self.output_filename, fourcc, self.fps, (width, height))
-                print(f"📹 실시간 영상 생성 시작: {self.output_filename} ({width}x{height})")
-                
-            except Exception as e:
-                print(f"⚠️ 비디오 라이터 초기화 실패: {e}")
-                self.video_writer = None
-        else:
-            print("⚠️ OpenCV가 설치되지 않았습니다. 실시간 영상 생성이 비활성화됩니다.")
-            self.video_writer = None
-        
-        # 격자 표시
-        for i in range(max_attempts + 1):
-            self.ax.axvline(x=i * self.sub_grid_width - 0.5, color='black', linewidth=2)
-        for i in range(max_rerolls + 1):
-            self.ax.axhline(y=i * self.sub_grid_height - 0.5, color='black', linewidth=2)
-        
-        # 레이블
-        self.ax.set_xlabel('Remaining Attempts')
-        self.ax.set_ylabel('Current Reroll Attempts')
-        self.ax.set_title('Gem Probability Calculation Progress')
-        
-        # 축 눈금 설정
-        self.ax.set_xticks([i * self.sub_grid_width + self.sub_grid_width/2 for i in range(max_attempts)])
-        self.ax.set_xticklabels([str(i) for i in range(max_attempts)])
-        self.ax.set_yticks([i * self.sub_grid_height + self.sub_grid_height/2 for i in range(max_rerolls)])
-        self.ax.set_yticklabels([str(i) for i in range(max_rerolls)])
-        
-        plt.tight_layout()
-        
-    def update_progress(self, remaining_attempts, current_rerolls, sub_index, progress_type='calculated'):
-        """특정 위치의 서브 셀 하나를 완료로 표시"""
-        # 서브그리드 내 위치 계산 (125 x 90 격자)
-        sub_x = sub_index % self.sub_grid_width
-        sub_y = sub_index // self.sub_grid_width
-        
-        # 전체 이미지에서의 실제 위치
-        actual_x = remaining_attempts * self.sub_grid_width + sub_x
-        actual_y = current_rerolls * self.sub_grid_height + sub_y
-        
-        # 상태 표시 (1: 계산 완료, 2: 메모이제이션 히트)
-        if actual_y < self.image_height and actual_x < self.image_width:
-            if progress_type == 'memo_hit':
-                self.progress[actual_y, actual_x] = 2  # 파란색
-            else:
-                self.progress[actual_y, actual_x] = 1  # 초록색
-            
-    def refresh_display(self):
-        """프레임을 실시간으로 영상에 추가"""
-        self.im.set_data(self.progress)
-        
-        if self.video_writer:
-            try:
-                # matplotlib figure를 numpy 배열로 변환
-                self.fig.canvas.draw()
-                canvas = self.fig.canvas
-                width, height = canvas.get_width_height()
-                
-                # Agg backend에서 buffer_rgba() 사용
-                buf = np.frombuffer(canvas.buffer_rgba(), dtype=np.uint8) # type: ignore
-                buf = buf.reshape((height, width, 4))  # RGBA
-                
-                # RGBA를 RGB로 변환 (알파 채널 제거)
-                buf_rgb = buf[:, :, :3]
-                
-                # RGB를 BGR로 변환 (OpenCV 형식)
-                frame_bgr = cv2.cvtColor(buf_rgb, cv2.COLOR_RGB2BGR)
-                
-                # 영상에 프레임 추가
-                self.video_writer.write(frame_bgr)
-                self.frame_counter += 1
-                    
-            except Exception as e:
-                print(f"⚠️ 프레임 추가 실패: {e}")
-                # 비디오 라이터 비활성화
-                self.video_writer = None
-        
-        # 프레임 카운터 증가 및 로그 출력 (try 블록 외부에서)
-        if self.video_writer and self.frame_counter % 100 == 0:
-            print(f"🎬 영상 프레임 {self.frame_counter}개 추가됨")
-        
-        # 프레임 생성 후 파란색(메모 히트) 셀들을 초록색으로 변경
-        self.progress[self.progress == 2] = 1
-        
-    def save_current_video(self, suffix=""):
-        """현재까지의 영상을 저장 (중간 저장용)"""
-        if self.video_writer:
-            try:
-                # 현재 비디오 라이터 해제
-                temp_writer = self.video_writer
-                self.video_writer = None
-                temp_writer.release()
-                
-                # 파일명 생성
-                if suffix:
-                    base_name = self.output_filename.replace('.mp4', f'_{suffix}.mp4')
-                else:
-                    base_name = self.output_filename.replace('.mp4', f'_frame_{self.frame_counter}.mp4')
-                    
-                # 기존 파일을 새 이름으로 복사
-                if os.path.exists(self.output_filename):
-                    shutil.copy2(self.output_filename, base_name)
-                    print(f"💾 중간 영상 저장: {base_name} ({self.frame_counter}프레임)")
-                
-                # 비디오 라이터 재초기화
-                fourcc = cv2.VideoWriter_fourcc(*'mp4v') # type: ignore
-                self.fig.canvas.draw()
-                canvas = self.fig.canvas
-                width, height = canvas.get_width_height()
-                buf = np.frombuffer(canvas.buffer_rgba(), dtype=np.uint8) # type: ignore
-                buf = buf.reshape((height, width, 4))  # RGBA
-                buf_rgb = buf[:, :, :3]  # RGB로 변환
-                height, width = buf_rgb.shape[:2]
-                self.video_writer = cv2.VideoWriter(self.output_filename, fourcc, self.fps, (width, height))
-                
-            except Exception as e:
-                print(f"⚠️ 중간 영상 저장 실패: {e}")
-    
-    def close(self):
-        """시각화 종료 및 최종 영상 저장"""
-        if self.video_writer:
-            self.video_writer.release()
-            print(f"🎬 최종 영상 완료: {self.output_filename} ({self.frame_counter}프레임)")
-        plt.close(self.fig)
-        
-# 전역 시각화 객체
-visualizer = None
-
-# 메모이제이션 히트 버퍼 (배치 처리용)
-memo_hit_buffer = set()  # state_key들을 저장
-
-def update_visualization_progress(state_key: str, is_memo_hit: bool = False):
-    """시각화 진행상황 업데이트"""
-    global visualizer
-    
-    if not visualizer:
-        return
-        
-    try:
-        # key에서 상태 정보 파싱: "wp,cp,dealerA,dealerB,supportA,supportB,attempts,reroll,cost,isFirst"
-        parts = state_key.split(',')
-        if len(parts) != 10:
-            return
-            
-        wp, cp, dealerA, dealerB, supportA, supportB, attempts, reroll, cost, _ = map(int, parts)
-        
-        # 서브 인덱스 계산
-        cost_idx = {-100: 0, 0: 1, 100: 2}.get(cost, 1)
-        wp_idx = wp - 1
-        cp_idx = cp - 1
-        
-        # 4개 옵션 조합 인덱스 계산 (정확히 2개만 활성화)
-        active_options = []
-        if dealerA > 0:
-            active_options.append(('dealerA', dealerA))
-        if dealerB > 0:
-            active_options.append(('dealerB', dealerB))
-        if supportA > 0:
-            active_options.append(('supportA', supportA))
-        if supportB > 0:
-            active_options.append(('supportB', supportB))
-        
-        # 활성화된 2개 옵션의 조합 패턴에 따라 인덱스 계산
-        if len(active_options) == 2:
-            opt1_name, opt1_val = active_options[0]
-            opt2_name, opt2_val = active_options[1]
-            
-            # 6가지 조합 패턴
-            combo_patterns = [
-                ('dealerA', 'dealerB'),
-                ('dealerA', 'supportA'), 
-                ('dealerA', 'supportB'),
-                ('dealerB', 'supportA'),
-                ('dealerB', 'supportB'),
-                ('supportA', 'supportB')
-            ]
-            
-            # 현재 조합이 어떤 패턴인지 찾기
-            current_pattern = (opt1_name, opt2_name)
-            if current_pattern in combo_patterns:
-                pattern_idx = combo_patterns.index(current_pattern)
-            else:
-                # 순서가 바뀐 경우
-                reversed_pattern = (opt2_name, opt1_name)
-                if reversed_pattern in combo_patterns:
-                    pattern_idx = combo_patterns.index(reversed_pattern)
-                    opt1_val, opt2_val = opt2_val, opt1_val  # 값도 순서 맞춤
-                else:
-                    pattern_idx = 0  # fallback
-            
-            # 각 패턴 내에서 25가지 조합 (5 * 5)
-            sub_combo_idx = (opt1_val - 1) * 5 + (opt2_val - 1)
-            option_idx = pattern_idx * 25 + sub_combo_idx
-        else:
-            option_idx = 0  # fallback
-        
-        sub_index = (cost_idx * 5 * 5 * 150 + 
-                    wp_idx * 5 * 150 + 
-                    cp_idx * 150 + 
-                    option_idx)
-        
-        # 메모이제이션 히트 여부에 따라 다른 값으로 업데이트
-        if is_memo_hit:
-            visualizer.update_progress(attempts, reroll, sub_index, progress_type='memo_hit')
-        else:
-            visualizer.update_progress(attempts, reroll, sub_index, progress_type='calculated')
-            
-    except Exception as e:
-        # 시각화 오류가 전체 계산을 망가뜨리지 않도록
-        print(f"시각화 업데이트 오류: {e}")
-        pass
-
-def flush_memo_hits_to_visualization():
-    """버퍼에 쌓인 메모 히트들을 일괄 시각화 처리"""
-    global memo_hit_buffer
-    
-    if not memo_hit_buffer:
-        return 0
-        
-    memo_hit_count = len(memo_hit_buffer)
-    
-    # 모든 메모 히트를 시각화
-    for state_key in memo_hit_buffer:
-        update_visualization_progress(state_key, is_memo_hit=True)
-    
-    # 버퍼 클리어
-    memo_hit_buffer.clear()
-    
-    return memo_hit_count
 
 def create_generalized_gem_pattern(gem: GemState) -> str:
     """젬 상태를 일반화된 패턴으로 변환 (효과적인 메모이제이션을 위해)"""
@@ -685,26 +418,13 @@ def create_generalized_gem_pattern(gem: GemState) -> str:
 def state_to_key(gem: GemState) -> str:
     """젬 상태를 키 문자열로 변환 (4개 옵션 시스템, 리롤 횟수는 상한까지만)"""
     # 리롤 횟수는 상한 이상을 모두 상한으로 간주 (메모이제이션 효율성)
-    capped_reroll = min(MAX_REROLL_FOR_MEMOIZATION, gem.currentRerollAttempts)
+    capped_reroll = min(MAX_REROLL_ATTEMPTS, gem.currentRerollAttempts)
     first_processing = 1 if gem.isFirstProcessing else 0
     return f"{gem.willpower},{gem.corePoint},{gem.dealerA},{gem.dealerB},{gem.supportA},{gem.supportB},{gem.remainingAttempts},{capped_reroll},{gem.costModifier},{first_processing}"
 
 def check_target_conditions(gem: GemState) -> Dict[str, bool]:
-    """현재 젬 상태에서 각 목표 달성 여부 확인"""
-    return {
-        '5/5': gem.willpower >= 5 and gem.corePoint >= 5,
-        '5/4': gem.willpower >= 5 and gem.corePoint >= 4,
-        '4/5': gem.willpower >= 4 and gem.corePoint >= 5,
-        '5/3': gem.willpower >= 5 and gem.corePoint >= 3,
-        '4/4': gem.willpower >= 4 and gem.corePoint >= 4,
-        '3/5': gem.willpower >= 3 and gem.corePoint >= 5,
-        'sum8+': (gem.willpower + gem.corePoint) >= 8,
-        'sum9+': (gem.willpower + gem.corePoint) >= 9,
-        'relic+': (gem.willpower + gem.corePoint + gem.dealerA + gem.dealerB + gem.supportA + gem.supportB) >= 16,
-        'ancient+': (gem.willpower + gem.corePoint + gem.dealerA + gem.dealerB + gem.supportA + gem.supportB) >= 19,
-        'dealer_complete': (gem.willpower + gem.corePoint + gem.dealerA + gem.dealerB) == 20,
-        'support_complete': (gem.willpower + gem.corePoint + gem.supportA + gem.supportB) == 20
-    }
+    """현재 젬 상태에서 각 목표 달성 여부 확인 (동적 생성)"""
+    return {target_name: target_func(gem) for target_name, target_func in TARGETS.items()}
 
 def calculate_combo_probabilities_for_gem(gem: GemState, available_options: List[Dict], combo_memo: Dict[str, Dict]) -> Dict:
     """현재 젬 상태에 대한 4combo 확률 계산 및 메모이제이션"""
@@ -791,15 +511,10 @@ def calculate_percentiles_from_combo_data(target_combo_data: Dict[str, List]) ->
     
     return target_percentiles
 
-def calculate_probabilities(gem: GemState, memo: Dict[str, Dict], combo_memo: Dict[str, Dict]) -> Dict[str, float]:
+def calculate_probabilities(gem: GemState, memo: Dict[str, Dict], combo_memo: Dict[str, Dict], verbose=True) -> Dict[str, Dict]:
     """재귀적으로 확률을 계산. 매우 중요: 여기서의 확률은 아직 옵션 4개를 보지 못한 상태임"""
-    global calculation_counter, visualizer
-    
     key = state_to_key(gem)
     if key in memo:
-        # 메모이제이션 히트 - 버퍼에 저장 (배치 처리용)
-        global memo_hit_buffer
-        memo_hit_buffer.add(key)
         return memo[key]
     
     # 목표 조건들 확인
@@ -836,36 +551,14 @@ def calculate_probabilities(gem: GemState, memo: Dict[str, Dict], combo_memo: Di
             'percentiles': base_percentiles,
             'expectedCosts': terminal_expected_costs
         }
-        # 새로운 계산 완료 시 진행 상황 출력
-        calculation_counter += 1
-        
-        # 버퍼에 쌓인 메모 히트들을 일괄 처리
-        memo_hit_count = flush_memo_hits_to_visualization()
-        
-        available_options = get_available_options(gem)
-        total_combo_count = sum(len(combos) for combos in combo_memo.values())
-        elapsed_time = time.time() - start_time if start_time else 0
-        avg_time_per_state = elapsed_time / calculation_counter if calculation_counter > 0 else 0
-        available_count = len(available_options)
-        combo_4_count = comb(available_count, 4) if available_count >= 4 else 0
-        print(f"기저 조건: {calculation_counter:>5d}개 상태 ({key}) "
-              f"8+: {base_probabilities['sum8+']:.6f}, 9+: {base_probabilities['sum9+']:.6f}, "
-              f"r+: {base_probabilities['relic+']:.6f}, a+: {base_probabilities['ancient+']:.6f}, "
-              f"d_comp: {base_probabilities['dealer_complete']:.6f}, s_comp: {base_probabilities['support_complete']:.6f}, "
-              f"memo_hit: {memo_hit_count:2d}개, combo_memo: {len(combo_memo)}패턴/{total_combo_count}조합, "
-              f"options: {available_count}개, 4조합: {combo_4_count}개, "
-              f"경과시간: {elapsed_time:.2f}s, 평균: {avg_time_per_state * 1000:.3f}s/1000 상태")
-        
-        # 시각화 업데이트 (기저 조건 계산 완료 시)
-        update_visualization_progress(key, is_memo_hit=False)
-        
-        if visualizer:
-            visualizer.refresh_display()
-            
-        # 중간 영상 저장 (1만개마다)
-        if calculation_counter % 10000 == 0 and visualizer:
-            visualizer.save_current_video(f"checkpoint_{calculation_counter}")
-        
+        # 새로운 계산 완료 시 진행 상황 출력 (병렬 환경에서는 단순화)
+        if verbose:
+            current_time = time.strftime("%H:%M:%S")
+            print(f"기저 조건 계산: ({key}) - {current_time} "
+                  f"8+: {base_probabilities.get('sum8+', 0):.6f}, 9+: {base_probabilities.get('sum9+', 0):.6f}, "
+                  f"r+: {base_probabilities.get('relic+', 0):.6f}, a+: {base_probabilities.get('ancient+', 0):.6f}, "
+                  f"d_comp: {base_probabilities.get('dealer_complete', 0):.6f}, s_comp: {base_probabilities.get('support_complete', 0):.6f}")
+
         return memo[key]
     
     # 실제 게임 로직: 4개 조합을 뽑고 그 중 하나를 25% 확률로 선택
@@ -892,7 +585,7 @@ def calculate_probabilities(gem: GemState, memo: Dict[str, Dict], combo_memo: Di
             costModifier=gem.costModifier,
             isFirstProcessing=False  # 리롤 후는 당연히 첫 가공이 아닌 상태임
         )
-        reroll_future_data = calculate_probabilities(rerolled_gem, memo, combo_memo)
+        reroll_future_data = calculate_probabilities(rerolled_gem, memo, combo_memo, verbose)
         reroll_future_probs = reroll_future_data['probabilities']
         reroll_future_costs = reroll_future_data['expectedCosts']
         
@@ -935,10 +628,41 @@ def calculate_probabilities(gem: GemState, memo: Dict[str, Dict], combo_memo: Di
         combo_future_probs = {}
         combo_future_costs = {}
         for option in combo_options:
-            next_gem = apply_processing(gem, option['action'])
-            future_data = calculate_probabilities(next_gem, memo, combo_memo)
-            combo_future_probs[option['action']] = future_data['probabilities']
-            combo_future_costs[option['action']] = future_data['expectedCosts']
+            # 옵션 변경 액션인 경우 특별 처리
+            if option['action'].endswith('_change'):                
+                # 비활성 옵션들 찾기
+                current_options = ['dealerA', 'dealerB', 'supportA', 'supportB']
+                inactive_options = [opt for opt in current_options if getattr(gem, opt) == 0]
+                
+                if inactive_options:
+                    # 각 가능한 타겟에 대한 확률과 비용 계산
+                    all_target_probs = {target: 0.0 for target in check_target_conditions(gem)}
+                    all_target_costs = {target: 0.0 for target in check_target_conditions(gem)}
+                    
+                    for target_opt in inactive_options:
+                        next_gem = apply_processing(gem, option['action'], target_opt)
+                        future_data = calculate_probabilities(next_gem, memo, combo_memo, verbose)
+                        
+                        # 균등 확률로 평균 계산
+                        weight = 1.0 / len(inactive_options)
+                        for target in all_target_probs:
+                            all_target_probs[target] += future_data['probabilities'][target] * weight
+                            all_target_costs[target] += future_data['expectedCosts'][target] * weight
+                    
+                    combo_future_probs[option['action']] = all_target_probs
+                    combo_future_costs[option['action']] = all_target_costs
+                else:
+                    # 변경할 옵션이 없으면 현재 상태 유지
+                    next_gem = apply_processing(gem, option['action'])
+                    future_data = calculate_probabilities(next_gem, memo, combo_memo, verbose)
+                    combo_future_probs[option['action']] = future_data['probabilities']
+                    combo_future_costs[option['action']] = future_data['expectedCosts']
+            else:
+                # 일반 액션
+                next_gem = apply_processing(gem, option['action'])
+                future_data = calculate_probabilities(next_gem, memo, combo_memo, verbose)
+                combo_future_probs[option['action']] = future_data['probabilities']
+                combo_future_costs[option['action']] = future_data['expectedCosts']
         
         # 모든 target에 대해 이 조합의 기여도 계산
         for target in targets:
@@ -1012,88 +736,345 @@ def calculate_probabilities(gem: GemState, memo: Dict[str, Dict], combo_memo: Di
         'expectedCosts': expected_costs
     }
        
-    # 새로운 계산 완료 시 진행 상황 출력
-    calculation_counter += 1
-    
-    # 버퍼에 쌓인 메모 히트들을 일괄 처리
-    memo_hit_count = flush_memo_hits_to_visualization()
-        
-    total_combo_count = sum(len(combos) for combos in combo_memo.values())
-    elapsed_time = time.time() - start_time if start_time else 0
-    avg_time_per_state = elapsed_time / calculation_counter if calculation_counter > 0 else 0
-    available_count = len(available_options)
-    combo_4_count = comb(available_count, 4) if available_count >= 4 else 0
-    print(f"계산 완료: {calculation_counter:>5d}개 상태 ({key}) "
-          f"8+: {probabilities['sum8+']:.6f}, 9+: {probabilities['sum9+']:.6f}, "
-          f"r+: {probabilities['relic+']:.6f}, a+: {probabilities['ancient+']:.6f}, "
-          f"d_comp: {probabilities['dealer_complete']:.6f}, s_comp: {probabilities['support_complete']:.6f}, "
-          f"memo_hit: {memo_hit_count:2d}개, combo_memo: {len(combo_memo)}패턴/{total_combo_count}조합, "
-          f"options: {available_count}개, 4조합: {combo_4_count}개, "
-          f"경과시간: {elapsed_time:.2f}s, 평균: {avg_time_per_state * 1000:.3f}s/1000 상태")
-    
-    # 시각화 업데이트 (실제 계산 완료 시)
-    update_visualization_progress(key, is_memo_hit=False)
-    
-    # 화면 갱신은 가끔만
-    if visualizer:
-        visualizer.refresh_display()
-        
-    # 중간 영상 저장 (1만개마다)
-    if calculation_counter % 10000 == 0 and visualizer:
-        visualizer.save_current_video(f"checkpoint_{calculation_counter}")
+    # 새로운 계산 완료 시 진행 상황 출력 (병렬 환경에서는 단순화)
+    if verbose:
+        current_time = time.strftime("%H:%M:%S")
+        print(f"상태 계산 완료: ({key}) - {current_time} "
+              f"8+: {probabilities.get('sum8+', 0):.6f}, 9+: {probabilities.get('sum9+', 0):.6f}, "
+              f"r+: {probabilities.get('relic+', 0):.6f}, a+: {probabilities.get('ancient+', 0):.6f}, "
+              f"d_comp: {probabilities.get('dealer_complete', 0):.6f}, s_comp: {probabilities.get('support_complete', 0):.6f}")
     
     # 전체 데이터 반환 (memo에 저장된 것과 동일)
     return memo[key]
 
-def _generate_probability_table_impl(memo=None, combo_memo=None, enable_visualization=True):
-    """확률 테이블 생성 구현부 (메모이제이션 외부 제공 가능)"""
-    print("🎲 확률 테이블 생성 시작...")
-    
-    # 전역 카운터 초기화
-    global calculation_counter, visualizer, start_time
-    calculation_counter = 0
-    start_time = time.time()  # 전역 시작 시간 설정
-    
-    # 시각화 초기화
-    if enable_visualization:
-        try:
-            visualizer = ProgressVisualizer(max_attempts=10, max_rerolls=MAX_REROLL_ATTEMPTS)
-            print("📊 진행 상황 시각화 활성화")
-            time.sleep(3)
-        except Exception as e:
-            print(f"⚠️ 시각화 초기화 실패: {e}")
-            visualizer = None
-    
-    # 메모이제이션 초기화 또는 외부에서 제공받은 것 사용
-    if memo is None:
-        memo = {}
-    if combo_memo is None:
-        combo_memo = {}  # 조합 메모이제이션
+# 병렬 처리를 위한 워커 함수
+def process_batch(batch_data, shared_dict, shared_combo_dict):
+    """배치 단위로 상태들을 처리하는 워커 함수 (조용히)"""
+    local_memo = dict(shared_dict)  # 공유 딕셔너리 복사
+    local_combo_memo = dict(shared_combo_dict)
+
+    # 계산 전 메모 크기 기록
+    initial_memo_keys = set(local_memo.keys())
+
+    for gem_state in batch_data:
+        key = state_to_key(gem_state)
+        if key not in local_memo:
+            # 로컬 메모로 계산 (워커에서는 출력 비활성화)
+            _ = calculate_probabilities(gem_state, local_memo, local_combo_memo, verbose=False)
+
+    # 새로 계산된 모든 상태들을 반환 (원래 배치 + 연쇄 계산된 것들)
+    new_keys = set(local_memo.keys()) - initial_memo_keys
+    results = [(key, local_memo[key]) for key in new_keys]
+
+    return results
+
+def values_equal(val1, val2, tolerance=1e-10):
+    """두 계산 결과가 허용 오차 내에서 동일한지 확인"""
+    # probabilities 딕셔너리 비교
+    for target in val1['probabilities']:
+        if target not in val2['probabilities']:
+            return False
+        diff = abs(val1['probabilities'][target] - val2['probabilities'][target])
+        if diff > tolerance:
+            return False
+
+    # expectedCosts 딕셔너리 비교
+    for target in val1['expectedCosts']:
+        if target not in val2['expectedCosts']:
+            return False
+        diff = abs(val1['expectedCosts'][target] - val2['expectedCosts'][target])
+        if diff > tolerance:
+            return False
+
+    return True
+
+def merge_results_with_validation(shared_memo, batch_results, tolerance=1e-6):
+    """워커 결과들을 무결성 검증하면서 병합"""
+    conflicts = []
+    updates_to_apply = {}
+
+    # 배치 간 중복 키 검증: 여러 워커가 같은 상태를 연쇄 계산했을 때 일관성 확인
+    for results in batch_results:
+        for key, value in results:
+            if key in updates_to_apply:
+                # 이미 다른 워커에서 계산한 결과와 비교
+                existing_value = updates_to_apply[key]
+                if not values_equal(existing_value, value, tolerance):
+                    conflicts.append({
+                        'key': key,
+                        'worker1_prob_sample': list(existing_value['probabilities'].values())[:3],
+                        'worker2_prob_sample': list(value['probabilities'].values())[:3]
+                    })
+            else:
+                updates_to_apply[key] = value
+
+    # Manager 딕셔너리에 한 번에 업데이트
+    if updates_to_apply:
+        shared_memo.update(updates_to_apply)
+
+    if conflicts:
+        print(f"⚠️  워커 간 {len(conflicts)}개 계산 결과 불일치 발견 (tolerance={tolerance})")
+        for i, conflict in enumerate(conflicts[:3]):  # 처음 3개만 표시
+            print(f"  충돌 {i+1}: {conflict['key'][:50]}...")
+            print(f"    워커1: {conflict['worker1_prob_sample']}")
+            print(f"    워커2: {conflict['worker2_prob_sample']}")
+        if len(conflicts) > 3:
+            print(f"  ... 외 {len(conflicts)-3}개")
+
+    return len(updates_to_apply)
+
+
+def load_existing_progress(db_path):
+    """기존 진행 상황을 DB에서 로드"""
+    if not os.path.exists(db_path):
+        return {}, {}
+
+    print(f"📂 기존 진행 상황을 로드 중: {db_path}")
+
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+
+    # 테이블 존재 여부 확인
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='goal_probabilities'")
+    if not cursor.fetchone():
+        conn.close()
+        return {}, {}
+
+    memo = {}
+
+    # 동적으로 확률 컬럼명 생성
+    prob_columns = []
+    for target_name in TARGETS.keys():
+        column_name = TARGET_CONFIG[target_name]['columnName']
+        prob_columns.append(f"prob_{column_name}")
+
+    prob_columns_str = ", ".join(prob_columns)
+
+    # 기존 데이터 로드 (모든 데이터 포함)
+    cursor.execute(f"""
+        SELECT willpower, corePoint, dealerA, dealerB, supportA, supportB,
+               remainingAttempts, currentRerollAttempts, costModifier, isFirstProcessing,
+               {prob_columns_str}
+        FROM goal_probabilities
+    """)
+
+    loaded_count = 0
+    for row in cursor.fetchall():
+        wp, cp, dA, dB, sA, sB, attempts, reroll, cost, isFirst = row[:10]
+        prob_values = row[10:]
+
+        state_key = f"{wp},{cp},{dA},{dB},{sA},{sB},{attempts},{reroll},{cost},{isFirst}"
+
+        # 확률 데이터 복원
+        probabilities = {}
+        for i, (target_name, _) in enumerate(TARGETS.items()):
+            probabilities[target_name] = prob_values[i]
+
+        # 완전한 상태 데이터 저장 (availableOptions, percentiles, expectedCosts는 일단 기본값). Todo임
+        memo[state_key] = {
+            "probabilities": probabilities,
+            "availableOptions": [],
+            "percentiles": {target: {10: 0.0, 20: 0.0, 30: 0.0, 40: 0.0, 50: 0.0,
+                                   60: 0.0, 70: 0.0, 80: 0.0, 90: 0.0} for target in TARGETS.keys()},
+            "expectedCosts": {target: 0.0 for target in TARGETS.keys()}
+        }
+        loaded_count += 1
+
+    conn.close()
+    print(f"✅ {loaded_count}개 상태 로드 완료")
+    return memo, {}
+
+def save_progress_to_db(shared_memo, db_path, saved_keys, is_final=False):
+    """현재 진행 상황을 DB에 저장 (증분 저장)"""
+    if not shared_memo:
+        return saved_keys
+
+    memo_dict = dict(shared_memo)
+    new_keys = set(memo_dict.keys()) - saved_keys
+    new_items = {k: memo_dict[k] for k in new_keys}
+
+    if new_items:
+        print(f"💾 {'최종' if is_final else '중간'} 결과 저장 중...")
+
+        # 스키마 생성
+        create_database_schema(db_path)
+
+        # 새로운 항목만 저장
+        save_to_database(new_items, db_path)
+        saved_keys.update(new_keys)
+        print(f"💾 {len(new_items)}개 새로운 상태 저장 완료")
+
+    return saved_keys
+
+def _generate_probability_table_parallel(num_workers=None, resume_db_path=None):
+    """병렬 확률 테이블 생성 (중간 저장 및 재시작 지원)"""
+    if num_workers is None:
+        num_workers = mp.cpu_count()
+
+    print(f"🚀 {num_workers}개 코어를 사용한 병렬 계산 시작...")
+
+    start_time = time.time()
+
+    # 기존 진행 상황 로드
+    existing_memo, existing_combo_memo = {}, {}
+    if resume_db_path and os.path.exists(resume_db_path):
+        existing_memo, existing_combo_memo = load_existing_progress(resume_db_path)
+
+    # Manager를 사용한 공유 딕셔너리
+    manager = Manager()
+    shared_memo = manager.dict(existing_memo)
+    shared_combo_memo = manager.dict(existing_combo_memo)
+
+    # 저장된 키들 추적
+    saved_keys = set(existing_memo.keys())  # 기존에 로드된 키들은 이미 저장됨
+
     total_states = 0
-    
-    # 모든 가능한 상태 순회 (Bottom-up: reroll부터, 그다음 remainingAttempts가 작은 것부터). 5*10*3*5*5*6*5*5+a=562500+a
-    for currentRerollAttempts in range(MAX_REROLL_ATTEMPTS):  # 0~(MAX_REROLL_ATTEMPTS-1) (리롤 횟수를 가장 먼저)
-        for remainingAttempts in range(10):  # 0~9 (JavaScript와 일치)
-            for costModifier in [-100, 0, 100]:  # 가능한 비용 수정값
+
+    # 레벨별로 상태들을 그룹화 (currentRerollAttempts, remainingAttempts)
+    states_by_level = {}
+
+    # 모든 가능한 상태 생성 및 레벨별 그룹화
+    for currentRerollAttempts in range(MAX_REROLL_ATTEMPTS + 1):
+        for remainingAttempts in range(10):
+            level_key = (currentRerollAttempts, remainingAttempts)
+            states_by_level[level_key] = []
+
+            for costModifier in [-100, 0, 100]:
                 for willpower in range(1, 6):
                     for corePoint in range(1, 6):
                         for dealerA in range(0, 6):
                             for dealerB in range(0, 6):
                                 for supportA in range(0, 6):
                                     for supportB in range(0, 6):
-                                        # 4개 옵션 중 정확히 2개만 0이 아니어야 함 (유효한 젬 상태)
                                         non_zero_count = sum(1 for x in [dealerA, dealerB, supportA, supportB] if x > 0)
                                         if non_zero_count != 2:
                                             continue
-                                                                                
-                                        # isFirstProcessing=True 조건:
-                                        # 1. 모든 값의 합이 4 (초기 상태)
-                                        # 2. costModifier = 0
-                                        # 3. (remainingAttempts, currentRerollAttempts) = (5, 0), (7, 1), (9, 2) 중 하나
+
                                         total_values = willpower + corePoint + dealerA + dealerB + supportA + supportB
                                         is_valid_first = (
-                                            total_values == 4 and 
-                                            costModifier == 0 and 
+                                            total_values == 4 and
+                                            costModifier == 0 and
+                                            (remainingAttempts, currentRerollAttempts) in VALID_FIRST_PROCESSING_COMBINATIONS
+                                        )
+                                        possible_first = [True, False] if is_valid_first else [False]
+
+                                        for isFirstProcessing in possible_first:
+                                            gem = GemState(
+                                                willpower=willpower,
+                                                corePoint=corePoint,
+                                                dealerA=dealerA,
+                                                dealerB=dealerB,
+                                                supportA=supportA,
+                                                supportB=supportB,
+                                                remainingAttempts=remainingAttempts,
+                                                currentRerollAttempts=currentRerollAttempts,
+                                                costModifier=costModifier,
+                                                isFirstProcessing=isFirstProcessing
+                                            )
+                                            states_by_level[level_key].append(gem)
+                                            total_states += 1
+
+    print(f"📊 총 {total_states}개 상태를 처리합니다.")
+
+    # 레벨별로 순차 처리 (의존성 때문에)
+    for currentRerollAttempts in range(MAX_REROLL_ATTEMPTS + 1):
+        for remainingAttempts in range(10):
+            level_key = (currentRerollAttempts, remainingAttempts)
+            level_states = states_by_level[level_key]
+
+            if not level_states:
+                continue
+
+            # 이미 계산된 상태들 필터링
+            pending_states = []
+            skipped_count = 0
+            for state in level_states:
+                state_key = state_to_key(state)
+                if state_key not in shared_memo:
+                    pending_states.append(state)
+                else:
+                    skipped_count += 1
+
+            if not pending_states:
+                if skipped_count > 0:
+                    print(f"레벨 ({currentRerollAttempts}, {remainingAttempts}): {skipped_count}개 상태 이미 완료 (건너뜀)")
+                continue
+
+            print(f"레벨 ({currentRerollAttempts}, {remainingAttempts}): {len(pending_states)}개 상태 처리 중... (건너뜀: {skipped_count}개)")
+
+            # 현재 레벨의 미완료 상태들을 배치로 나눔
+            batch_size = max(1, len(pending_states) // num_workers)
+            batches = [pending_states[i:i+batch_size] for i in range(0, len(pending_states), batch_size)]
+
+            new_results_count = 0
+
+            # 모든 배치를 워커 프로세스들이 처리 (조용히)
+            with Pool(processes=num_workers) as pool:
+                worker_func = partial(process_batch, shared_dict=shared_memo, shared_combo_dict=shared_combo_memo)
+                batch_results = pool.map(worker_func, batches)
+
+            # 워커 결과를 무결성 검증하면서 공유 메모에 병합
+            new_results_count = merge_results_with_validation(shared_memo, batch_results)
+
+            # 중간 저장 (매 레벨마다)
+            if resume_db_path and new_results_count > 0:
+                saved_keys = save_progress_to_db(shared_memo, resume_db_path, saved_keys, is_final=False)
+
+            # 진행 상황 출력
+            processed = len(shared_memo)
+            elapsed = time.time() - start_time
+            current_time = time.strftime("%H:%M:%S")
+            print(f"진행: {processed}/{total_states} ({processed/total_states*100:.1f}%) - {elapsed:.1f}초 경과 - {current_time} (새로 계산: {new_results_count}개)")
+
+    # 최종 결과를 일반 딕셔너리로 변환
+    final_memo = dict(shared_memo)
+
+    elapsed_time = time.time() - start_time
+    print(f"\n✅ 병렬 계산 완료!")
+    print(f"총 {len(final_memo)}개 상태 계산")
+    print(f"소요 시간: {elapsed_time:.1f}초")
+    print(f"평균 속도: {len(final_memo)/elapsed_time:.0f} 상태/초")
+
+    return final_memo
+
+def generate_probability_table(shared_memo=None, shared_combo_memo=None):
+    """순차 확률 테이블 생성 (메모이제이션 공유 가능)"""
+    print("🎲 확률 테이블 생성 시작...")
+
+    # 전역 카운터 초기화
+    start_time = time.time()
+
+    # 메모이제이션 초기화 또는 외부에서 제공받은 것 사용
+    if shared_memo is None:
+        memo = {}
+    else:
+        memo = shared_memo
+    if shared_combo_memo is None:
+        combo_memo = {}
+    else:
+        combo_memo = shared_combo_memo
+    total_states = 0
+
+    # 모든 가능한 상태 순회
+    for currentRerollAttempts in range(MAX_REROLL_ATTEMPTS + 1):
+        for remainingAttempts in range(10):
+            for costModifier in [-100, 0, 100]:
+                for willpower in range(1, 6):
+                    for corePoint in range(1, 6):
+                        for dealerA in range(0, 6):
+                            for dealerB in range(0, 6):
+                                for supportA in range(0, 6):
+                                    for supportB in range(0, 6):
+                                        # 4개 옵션 중 정확히 2개만 0이 아니어야 함
+                                        non_zero_count = sum(1 for x in [dealerA, dealerB, supportA, supportB] if x > 0)
+                                        if non_zero_count != 2:
+                                            continue
+
+                                        # isFirstProcessing=True 조건
+                                        total_values = willpower + corePoint + dealerA + dealerB + supportA + supportB
+                                        is_valid_first = (
+                                            total_values == 4 and
+                                            costModifier == 0 and
                                             (remainingAttempts, currentRerollAttempts) in VALID_FIRST_PROCESSING_COMBINATIONS
                                         )
                                         possible_first = [True, False] if is_valid_first else [False]
@@ -1112,73 +1093,39 @@ def _generate_probability_table_impl(memo=None, combo_memo=None, enable_visualiz
                                                     isFirstProcessing=isFirstProcessing
                                                 )
                                                 # 확률 계산
-                                                _ = calculate_probabilities(gem, memo, combo_memo)
-                                                
-                                                # 상태 키 생성 및 저장 (확률 + 사용가능 옵션)
-                                                state_key = state_to_key(gem)
-                                                # memo에 결과가 자동으로 저장됨 (calculate_probabilities에서)
+                                                _ = calculate_probabilities(gem, memo, combo_memo, verbose=True)
                                                 total_states += 1
-                                                
+
                                             except Exception as e:
                                                 print(f"\n❌ 에러 발생!")
                                                 print(f"에러 메시지: {e}")
-                                                print(f"현재 젬 상태:")
-                                                print(f"  - willpower: {gem.willpower}")
-                                                print(f"  - corePoint: {gem.corePoint}")
-                                                print(f"  - dealerA: {gem.dealerA}")
-                                                print(f"  - dealerB: {gem.dealerB}")
-                                                print(f"  - supportA: {gem.supportA}")
-                                                print(f"  - supportB: {gem.supportB}")
-                                                print(f"  - remainingAttempts: {gem.remainingAttempts}")
-                                                print(f"  - currentRerollAttempts: {gem.currentRerollAttempts}")
-                                                print(f"  - isFirstProcessing: {gem.isFirstProcessing}")
-                                                
-                                                state_key = state_to_key(gem)
-                                                print(f"\n상태 키: {state_key}")
-                                                
-                                                if state_key in memo:
-                                                    print(f"memo[{state_key}] 내용:")
-                                                    print(f"  - keys: {memo[state_key].keys()}")
-                                                    if 'probabilities' in memo[state_key]:
-                                                        print(f"  - probabilities: {memo[state_key]['probabilities']}")
-                                                    if 'availableOptions' in memo[state_key]:
-                                                        print(f"  - availableOptions 개수: {len(memo[state_key]['availableOptions'])}")
-                                                else:
-                                                    print(f"memo에 {state_key} 키가 없음")
-                                                
-                                                # 에러를 다시 발생시켜 프로그램 중단
                                                 raise
-    
+
     end_time = time.time()
     elapsed_time = end_time - start_time
-    
-    # 최종 시각화 업데이트
-    if visualizer:
-        visualizer.refresh_display()
-        print("📊 시각화 완료 - 창을 닫으려면 아무 키나 누르세요")
-    
+
     print(f"\n✅ 완료!")
     print(f"총 {total_states}개 상태 계산 완료")
     print(f"소요 시간: {elapsed_time:.1f}초")
     print(f"평균 계산 속도: {total_states/elapsed_time:.0f} 상태/초")
-    
+
     return memo
 
-def generate_probability_table_with_shared_memo(shared_memo: dict, shared_combo_memo: dict, enable_visualization: bool = True) -> dict:
-    """메모이제이션을 공유하며 확률 테이블 생성"""
-    return _generate_probability_table_impl(shared_memo, shared_combo_memo, enable_visualization)
-
-def generate_probability_table(enable_visualization: bool = True) -> dict:
-    """기본 확률 테이블 생성 (독립적인 메모이제이션 사용)"""
-    return _generate_probability_table_impl(None, None, enable_visualization)
-
 def create_database_schema(db_path: str):
-    """SQLite 데이터베이스 스키마 생성"""
+    """SQLite 데이터베이스 스키마 생성 (동적 컬럼 생성)"""
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     
+    # 동적으로 확률 컬럼 생성 (공유 설정의 컬럼명 사용)
+    prob_columns = []
+    for target_name in TARGETS.keys():
+        column_name = TARGET_CONFIG[target_name]['columnName']
+        prob_columns.append(f"prob_{column_name} REAL NOT NULL")
+    
+    prob_columns_str = ",\n            ".join(prob_columns)
+    
     # 목표별 확률 테이블
-    cursor.execute("""
+    cursor.execute(f"""
         CREATE TABLE IF NOT EXISTS goal_probabilities (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             willpower INTEGER NOT NULL,
@@ -1191,19 +1138,8 @@ def create_database_schema(db_path: str):
             currentRerollAttempts INTEGER NOT NULL,
             costModifier INTEGER NOT NULL,
             isFirstProcessing BOOLEAN NOT NULL,
-            -- 확률들
-            prob_5_5 REAL NOT NULL,
-            prob_5_4 REAL NOT NULL,
-            prob_4_5 REAL NOT NULL,
-            prob_5_3 REAL NOT NULL,
-            prob_4_4 REAL NOT NULL,
-            prob_3_5 REAL NOT NULL,
-            prob_sum8 REAL NOT NULL,
-            prob_sum9 REAL NOT NULL,
-            prob_relic REAL NOT NULL,
-            prob_ancient REAL NOT NULL,
-            prob_dealer_complete REAL NOT NULL,
-            prob_support_complete REAL NOT NULL,
+            -- 동적 생성된 확률 컬럼들
+            {prob_columns_str},
             UNIQUE(willpower, corePoint, dealerA, dealerB, supportA, supportB, 
                    remainingAttempts, currentRerollAttempts, costModifier, isFirstProcessing)
         )
@@ -1285,29 +1221,28 @@ def save_to_database(table: dict, db_path: str):
         # 퍼센타일 정보 추출
         percentiles = state_data.get('percentiles', {})
         
+        # 동적으로 INSERT 쿼리 생성 (공유 설정의 컬럼명 사용)
+        prob_column_names = []
+        prob_values = []
+        for target_name in TARGETS.keys():
+            column_name = TARGET_CONFIG[target_name]['columnName']
+            prob_column_names.append(f"prob_{column_name}")
+            prob_values.append(probabilities.get(target_name, 0.0))
+        
+        prob_columns_str = ", ".join(prob_column_names)
+        prob_placeholders = ", ".join(["?"] * len(prob_column_names))
+        
         # 젬 상태 저장
-        cursor.execute("""
+        cursor.execute(f"""
             INSERT OR REPLACE INTO goal_probabilities (
                 willpower, corePoint, dealerA, dealerB, supportA, supportB,
                 remainingAttempts, currentRerollAttempts, costModifier, isFirstProcessing,
-                prob_5_5, prob_5_4, prob_4_5, prob_5_3, prob_4_4, prob_3_5,
-                prob_sum8, prob_sum9, prob_relic, prob_ancient, prob_dealer_complete, prob_support_complete
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                {prob_columns_str}
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, {prob_placeholders})
         """, (
             wp, cp, dealerA, dealerB, supportA, supportB,
             attempts, reroll, cost, isFirstProcessing,
-            probabilities.get('5/5', 0.0),
-            probabilities.get('5/4', 0.0),
-            probabilities.get('4/5', 0.0),
-            probabilities.get('5/3', 0.0),
-            probabilities.get('4/4', 0.0),
-            probabilities.get('3/5', 0.0),
-            probabilities.get('sum8+', 0.0),
-            probabilities.get('sum9+', 0.0),
-            probabilities.get('relic+', 0.0),
-            probabilities.get('ancient+', 0.0),
-            probabilities.get('dealer_complete', 0.0),
-            probabilities.get('support_complete', 0.0)
+            *prob_values
         ))
         
         gem_state_id = cursor.lastrowid
@@ -1346,7 +1281,7 @@ def save_to_database(table: dict, db_path: str):
             """, (gem_state_id, target, cost))
         
         processed += 1
-        if processed % 1000 == 0:
+        if processed % 3000 == 0:
             print(f"진행: {processed}/{total_states} ({processed/total_states*100:.1f}%)")
             conn.commit()
     
@@ -1360,58 +1295,40 @@ def save_to_database(table: dict, db_path: str):
 if __name__ == "__main__":
     # 명령줄 인자 파싱
     import argparse
-    parser = argparse.ArgumentParser(description='젬 가공 확률 테이블 생성')
-    parser.add_argument('--max-reroll', type=int, default=2, 
+    parser = argparse.ArgumentParser(description='병렬 젬 가공 확률 테이블 생성')
+    parser.add_argument('--max-reroll', type=int, default=2,
                         help='최대 리롤 횟수 (기본값: 2)')
-    parser.add_argument('--max-reroll-range', type=str, default=None,
-                        help='리롤 횟수 범위 (예: "2-7")')
-    parser.add_argument('--no-viz', action='store_true',
-                        help='시각화 비활성화')
+    parser.add_argument('--workers', type=int, default=None,
+                        help='워커 프로세스 수 (기본값: CPU 코어 수)')
+    parser.add_argument('--sequential', action='store_true',
+                        help='순차 처리 모드 (비교용)')
     args = parser.parse_args()
-    
-    enable_viz = not args.no_viz
-    
-    # 리롤 범위 결정
-    if args.max_reroll_range:
-        start, end = map(int, args.max_reroll_range.split('-'))
-        reroll_values = list(range(start, end + 1))
-        print(f"🎲 리롤 범위 설정: {start}~{end} (메모이제이션 공유)")
+
+    # 전역 변수 업데이트
+    MAX_REROLL_ATTEMPTS = args.max_reroll
+
+    print(f"🎲 설정: 최대 리롤 횟수 = {args.max_reroll}")
+
+    # SQLite 데이터베이스 경로
+    db_file = f"./probability_table_reroll_{args.max_reroll}_parallel.db"
+
+    if args.sequential:
+        print("📝 순차 처리 모드로 실행합니다...")
+        # 기존 순차 버전 사용
+        table = generate_probability_table()
+        # 순차 버전은 한 번에 저장
+        create_database_schema(db_file)
+        save_to_database(table, db_file)
     else:
-        reroll_values = [args.max_reroll]
-        print(f"🎲 설정: 최대 리롤 횟수 = {args.max_reroll}")
-    
-    # combo 메모이제이션만 공유 (일반 memo는 각각 독립)
-    shared_combo_memo = {}
-    
-    try:
-        for max_reroll in reroll_values:
-            # 전역 변수 업데이트
-            MAX_REROLL_ATTEMPTS = max_reroll + 1
-            MAX_REROLL_FOR_MEMOIZATION = max_reroll
-            
-            print(f"\n🎯 리롤 {max_reroll} 계산 시작...")
-            
-            # 확률 테이블 생성 (combo 메모이제이션만 공유)
-            table = generate_probability_table_with_shared_memo(None, shared_combo_memo, enable_visualization=enable_viz) # type: ignore
-            
-            # JSON 파일로도 저장
-            json_file = f"./probability_table_reroll_{max_reroll}.json"
-            with open(json_file, 'w', encoding='utf-8') as f:
-                json.dump(table, f, ensure_ascii=False, indent=2)
-            print(f"✅ JSON 파일 저장 완료: {json_file}")
-            
-            # SQLite 데이터베이스로 저장
-            db_file = f"./probability_table_reroll_{max_reroll}.db"
-            create_database_schema(db_file)
-            save_to_database(table, db_file)
-                
-        print(f"\n🚀 사용법:")
-        print(f"JSON: {json_file}")
-        print(f"DB: {db_file}를 SQLite로 쿼리")
-        print(f"예: SELECT * FROM gem_states WHERE prob_ancient > 0.8 ORDER BY prob_ancient DESC;")
-        
-    finally:
-        # 시각화 정리
-        if visualizer:
-            print("🎬 시각화 완료!")
-            visualizer.close()
+        print("⚡ 병렬 처리 모드로 실행합니다...")
+        print(f"💾 중간 저장 파일: {db_file}")
+
+        # 병렬 버전 사용 (DB 경로 전달)
+        table = _generate_probability_table_parallel(num_workers=args.workers, resume_db_path=db_file)
+
+        # 최종 저장은 이미 매 레벨마다 저장되므로 생략
+        print("✅ 모든 계산 및 저장 완료")
+
+    print(f"\n🚀 완료!")
+    print(f"DB: {db_file}를 SQLite로 쿼리")
+    print(f"예: SELECT * FROM goal_probabilities WHERE prob_5_5 > 0.8 ORDER BY prob_5_5 DESC;")

@@ -12,8 +12,7 @@ import multiprocessing as mp
 from typing import Dict, List
 from dataclasses import dataclass
 from itertools import combinations, permutations
-from multiprocessing import Manager, Pool
-from functools import partial
+from multiprocessing import Pool
 
 # 상수 정의
 MAX_REROLL_ATTEMPTS = 6  # 전체 상태 생성 시 고려하는 최대 리롤 횟수 (0~6)
@@ -747,26 +746,58 @@ def calculate_probabilities(gem: GemState, memo: Dict[str, Dict], combo_memo: Di
     # 전체 데이터 반환 (memo에 저장된 것과 동일)
     return memo[key]
 
-# 병렬 처리를 위한 워커 함수
-def process_batch(batch_data, shared_dict, shared_combo_dict):
-    """배치 단위로 상태들을 처리하는 워커 함수 (조용히)"""
-    local_memo = dict(shared_dict)  # 공유 딕셔너리 복사
-    local_combo_memo = dict(shared_combo_dict)
+# 워커 프로세스 전역 변수 (fork로 자동 공유됨)
+worker_shared_memo = {}
+worker_shared_combo = {}
 
-    # 계산 전 메모 크기 기록
-    initial_memo_keys = set(local_memo.keys())
+# 병렬 처리를 위한 워커 함수
+def process_batch(batch_data):
+    """배치 단위로 상태들을 처리하는 워커 함수 (조용히)"""
+    global worker_shared_memo, worker_shared_combo
+
+    # 워커 전용 로컬 딕셔너리
+    local_memo = {}
+    local_combo_memo = {}
+
+    # 병합된 뷰 생성 (복사 없이)
+    class ChainedDict:
+        def __init__(self, *dicts):
+            self.dicts = dicts
+
+        def __contains__(self, key):
+            return any(key in d for d in self.dicts)
+
+        def __getitem__(self, key):
+            for d in self.dicts:
+                if key in d:
+                    return d[key]
+            raise KeyError(key)
+
+        def __setitem__(self, key, value):
+            # 항상 첫 번째 딕셔너리(local)에만 저장
+            self.dicts[0][key] = value
+
+        def get(self, key, default=None):
+            try:
+                return self[key]
+            except KeyError:
+                return default
+
+    # 체인 딕셔너리 생성 (로컬 먼저, shared는 읽기 전용 백업)
+    chained_memo = ChainedDict(local_memo, worker_shared_memo)
+    chained_combo_memo = ChainedDict(local_combo_memo, worker_shared_combo)
 
     for gem_state in batch_data:
         key = state_to_key(gem_state)
-        if key not in local_memo:
-            # 로컬 메모로 계산 (워커에서는 출력 비활성화)
-            _ = calculate_probabilities(gem_state, local_memo, local_combo_memo, verbose=False)
+        if key not in chained_memo:
+            # 계산 (chained_memo를 일반 dict처럼 사용)
+            _ = calculate_probabilities(gem_state, chained_memo, chained_combo_memo, verbose=False) # type: ignore
 
-    # 새로 계산된 모든 상태들을 반환 (원래 배치 + 연쇄 계산된 것들)
-    new_keys = set(local_memo.keys()) - initial_memo_keys
-    results = [(key, local_memo[key]) for key in new_keys]
+    # 새로 계산된 결과들만 반환 (local_memo에 있는 것들)
+    results = list(local_memo.items())
+    combo_results = list(local_combo_memo.items())
 
-    return results
+    return results, combo_results
 
 def values_equal(val1, val2, tolerance=1e-10):
     """두 계산 결과가 허용 오차 내에서 동일한지 확인"""
@@ -788,13 +819,33 @@ def values_equal(val1, val2, tolerance=1e-10):
 
     return True
 
-def merge_results_with_validation(shared_memo, batch_results, tolerance=1e-6):
+def combo_dicts_equal(dict1, dict2, tolerance=1e-6):
+    """두 콤보 딕셔너리가 허용 오차 내에서 동일한지 확인"""
+    if set(dict1.keys()) != set(dict2.keys()):
+        return False
+
+    for key in dict1:
+        if abs(dict1[key] - dict2[key]) > tolerance:
+            return False
+
+    return True
+
+def merge_results_with_validation(shared_memo, shared_combo_memo, batch_results, tolerance=1e-6):
     """워커 결과들을 무결성 검증하면서 병합"""
     conflicts = []
+    combo_conflicts = []
     updates_to_apply = {}
+    combo_updates_to_apply = {}
+
+    # 통계 수집
+    total_results_from_batches = 0
+    total_combo_results_from_batches = 0
 
     # 배치 간 중복 키 검증: 여러 워커가 같은 상태를 연쇄 계산했을 때 일관성 확인
-    for results in batch_results:
+    for results, combo_results in batch_results:
+        total_results_from_batches += len(results)
+        total_combo_results_from_batches += len(combo_results)
+        # 메인 메모 결과 처리
         for key, value in results:
             if key in updates_to_apply:
                 # 이미 다른 워커에서 계산한 결과와 비교
@@ -808,18 +859,48 @@ def merge_results_with_validation(shared_memo, batch_results, tolerance=1e-6):
             else:
                 updates_to_apply[key] = value
 
+        # 콤보 메모 결과 처리
+        for key, value in combo_results:
+            if key in combo_updates_to_apply:
+                # 콤보 메모는 딕셔너리 구조이므로 각 항목별로 비교
+                existing_combo_dict = combo_updates_to_apply[key]
+                if not combo_dicts_equal(existing_combo_dict, value, tolerance):
+                    combo_conflicts.append({
+                        'key': key,
+                        'worker1_sample': list(existing_combo_dict.items())[:2],
+                        'worker2_sample': list(value.items())[:2]
+                    })
+            else:
+                combo_updates_to_apply[key] = value
+
+    # 병합 통계 출력
+    print(f"📊 병합 통계: 배치 결과 {total_results_from_batches}개 → 고유 {len(updates_to_apply)}개 "
+          f"(중복 {total_results_from_batches - len(updates_to_apply)}개)")
+    print(f"📊 콤보 통계: 배치 결과 {total_combo_results_from_batches}개 → 고유 {len(combo_updates_to_apply)}개 "
+          f"(중복 {total_combo_results_from_batches - len(combo_updates_to_apply)}개)")
+
     # Manager 딕셔너리에 한 번에 업데이트
     if updates_to_apply:
         shared_memo.update(updates_to_apply)
+    if combo_updates_to_apply:
+        shared_combo_memo.update(combo_updates_to_apply)
 
+    # 충돌 보고
     if conflicts:
-        print(f"⚠️  워커 간 {len(conflicts)}개 계산 결과 불일치 발견 (tolerance={tolerance})")
+        print(f"⚠️  워커 간 {len(conflicts)}개 메모 결과 불일치 발견 (tolerance={tolerance})")
         for i, conflict in enumerate(conflicts[:3]):  # 처음 3개만 표시
             print(f"  충돌 {i+1}: {conflict['key'][:50]}...")
             print(f"    워커1: {conflict['worker1_prob_sample']}")
             print(f"    워커2: {conflict['worker2_prob_sample']}")
         if len(conflicts) > 3:
             print(f"  ... 외 {len(conflicts)-3}개")
+
+    if combo_conflicts:
+        print(f"⚠️  워커 간 {len(combo_conflicts)}개 콤보 결과 불일치 발견 (tolerance={tolerance})")
+        for i, conflict in enumerate(combo_conflicts[:3]):
+            print(f"  콤보 충돌 {i+1}: {conflict['key'][:30]}...")
+            print(f"    워커1: {conflict['worker1_sample']}")
+            print(f"    워커2: {conflict['worker2_sample']}")
 
     return len(updates_to_apply)
 
@@ -916,17 +997,17 @@ def _generate_probability_table_parallel(num_workers=None, resume_db_path=None):
     start_time = time.time()
 
     # 기존 진행 상황 로드
-    existing_memo, existing_combo_memo = {}, {}
+    shared_memo, shared_combo_memo = {}, {}
     if resume_db_path and os.path.exists(resume_db_path):
-        existing_memo, existing_combo_memo = load_existing_progress(resume_db_path)
+        shared_memo, shared_combo_memo = load_existing_progress(resume_db_path)
 
-    # Manager를 사용한 공유 딕셔너리
-    manager = Manager()
-    shared_memo = manager.dict(existing_memo)
-    shared_combo_memo = manager.dict(existing_combo_memo)
+    # 전역 변수로 설정 (fork 시점에 COW로 자동 공유)
+    global worker_shared_memo, worker_shared_combo
+    worker_shared_memo = shared_memo
+    worker_shared_combo = shared_combo_memo
 
     # 저장된 키들 추적
-    saved_keys = set(existing_memo.keys())  # 기존에 로드된 키들은 이미 저장됨
+    saved_keys = set(shared_memo.keys())  # 기존에 로드된 키들은 이미 저장됨
 
     total_states = 0
 
@@ -1010,11 +1091,10 @@ def _generate_probability_table_parallel(num_workers=None, resume_db_path=None):
 
             # 모든 배치를 워커 프로세스들이 처리 (조용히)
             with Pool(processes=num_workers) as pool:
-                worker_func = partial(process_batch, shared_dict=shared_memo, shared_combo_dict=shared_combo_memo)
-                batch_results = pool.map(worker_func, batches)
+                batch_results = pool.map(process_batch, batches)
 
             # 워커 결과를 무결성 검증하면서 공유 메모에 병합
-            new_results_count = merge_results_with_validation(shared_memo, batch_results)
+            new_results_count = merge_results_with_validation(shared_memo, shared_combo_memo, batch_results)
 
             # 중간 저장 (매 레벨마다)
             if resume_db_path and new_results_count > 0:

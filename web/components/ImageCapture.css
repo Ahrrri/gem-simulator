@@ -1,0 +1,162 @@
+.image-capture-container {
+  padding: 20px;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  margin: 10px 0;
+}
+
+.capture-controls {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-content: center;
+  justify-content: center;
+}
+
+.capture-btn {
+  padding: 10px 16px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.start-btn {
+  background: #4CAF50;
+  color: white;
+}
+
+.start-btn:hover {
+  background: #45a049;
+}
+
+.capture-btn-main {
+  background: #2196F3;
+  color: white;
+}
+
+.capture-btn-main:hover {
+  background: #1976D2;
+}
+
+.stop-btn {
+  background: #f44336;
+  color: white;
+}
+
+.stop-btn:hover {
+  background: #d32f2f;
+}
+
+.clear-btn {
+  background: #9E9E9E;
+  color: white;
+}
+
+.clear-btn:hover {
+  background: #757575;
+}
+
+.capturing-controls {
+  display: flex;
+  gap: 10px;
+}
+
+.video-preview {
+  margin: 15px 0;
+  text-align: center;
+}
+
+.video-preview video {
+  border: 2px solid #2196F3;
+  border-radius: 6px;
+}
+
+.captured-image-preview {
+  margin-top: 15px;
+  text-align: center;
+}
+
+.captured-image-preview h4 {
+  margin: 0 0 10px 0;
+  color: inherit;
+  font-size: 16px;
+}
+
+.captured-image-preview img {
+  border-radius: 6px;
+}
+
+.file-upload-btn {
+  background-color: #17a2b8;
+  color: white;
+  cursor: pointer;
+  display: inline-block;
+  text-align: center;
+}
+
+.file-upload-btn:hover {
+  background-color: #138496;
+}
+
+.crop-btn {
+  background-color: #fd7e14;
+  color: white;
+}
+
+.crop-btn:hover {
+  background-color: #e8610e;
+}
+
+.recognize-btn {
+  background-color: #20c997;
+  color: white;
+}
+
+.recognize-btn:hover {
+  background-color: #1aa179;
+}
+
+.saved-areas-section {
+  margin-top: 15px;
+  padding: 10px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.saved-area-option {
+  display: flex;
+  align-items: center;
+  margin-bottom: 8px;
+  gap: 5px;
+}
+
+.saved-area-option:last-child {
+  margin-bottom: 0;
+}
+
+.recognition-status {
+  margin-top: 15px;
+  padding: 10px;
+  background-color: #e3f2fd;
+  border: 1px solid #2196F3;
+  border-radius: 6px;
+  text-align: center;
+  color: #1976D2;
+  font-weight: 500;
+}
+
+.recognition-error {
+  margin-top: 15px;
+  padding: 10px;
+  background-color: #ffebee;
+  border: 1px solid #f44336;
+  border-radius: 6px;
+  text-align: center;
+  color: #d32f2f;
+  font-weight: 500;
+}

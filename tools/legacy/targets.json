@@ -1,0 +1,164 @@
+{
+  "targets": {
+    "5/5": {
+      "label": "5/5",
+      "columnName": "5_5",
+      "condition": "willpower >= 5 && corePoint >= 5"
+    },
+    "5/5_dealer_both": {
+      "label": "5/5 (딜러 이중)",
+      "columnName": "5_5_dealer_both",
+      "condition": "willpower >= 5 && corePoint >= 5 && dealerA > 0 && dealerB > 0"
+    },
+    "5/5_support_both": {
+      "label": "5/5 (서폿 이중)",
+      "columnName": "5_5_support_both",
+      "condition": "willpower >= 5 && corePoint >= 5 && supportA > 0 && supportB > 0"
+    },
+    "5/4": {
+      "label": "5/4+",
+      "columnName": "5_4",
+      "condition": "willpower >= 5 && corePoint >= 4"
+    },
+    "5/4_dealer_both": {
+      "label": "5/4+ (딜러 이중)",
+      "columnName": "5_4_dealer_both",
+      "condition": "willpower >= 5 && corePoint >= 4 && dealerA > 0 && dealerB > 0"
+    },
+    "5/4_support_both": {
+      "label": "5/4+ (서폿 이중)",
+      "columnName": "5_4_support_both",
+      "condition": "willpower >= 5 && corePoint >= 4 && supportA > 0 && supportB > 0"
+    },
+    "4/5": {
+      "label": "4/5+",
+      "columnName": "4_5",
+      "condition": "willpower >= 4 && corePoint >= 5"
+    },
+    "4/5_dealer_both": {
+      "label": "4/5+ (딜러 이중)",
+      "columnName": "4_5_dealer_both",
+      "condition": "willpower >= 4 && corePoint >= 5 && dealerA > 0 && dealerB > 0"
+    },
+    "4/5_support_both": {
+      "label": "4/5+ (서폿 이중)",
+      "columnName": "4_5_support_both",
+      "condition": "willpower >= 4 && corePoint >= 5 && supportA > 0 && supportB > 0"
+    },
+    "5/3": {
+      "label": "5/3+",
+      "columnName": "5_3",
+      "condition": "willpower >= 5 && corePoint >= 3"
+    },
+    "5/3_dealer_both": {
+      "label": "5/3+ (딜러 이중)",
+      "columnName": "5_3_dealer_both",
+      "condition": "willpower >= 5 && corePoint >= 3 && dealerA > 0 && dealerB > 0"
+    },
+    "5/3_support_both": {
+      "label": "5/3+ (서폿 이중)",
+      "columnName": "5_3_support_both",
+      "condition": "willpower >= 5 && corePoint >= 3 && supportA > 0 && supportB > 0"
+    },
+    "4/4": {
+      "label": "4/4+",
+      "columnName": "4_4",
+      "condition": "willpower >= 4 && corePoint >= 4"
+    },
+    "4/4_dealer_both": {
+      "label": "4/4+ (딜러 이중)",
+      "columnName": "4_4_dealer_both",
+      "condition": "willpower >= 4 && corePoint >= 4 && dealerA > 0 && dealerB > 0"
+    },
+    "4/4_support_both": {
+      "label": "4/4+ (서폿 이중)",
+      "columnName": "4_4_support_both",
+      "condition": "willpower >= 4 && corePoint >= 4 && supportA > 0 && supportB > 0"
+    },
+    "3/5": {
+      "label": "3/5+",
+      "columnName": "3_5",
+      "condition": "willpower >= 3 && corePoint >= 5"
+    },
+    "3/5_dealer_both": {
+      "label": "3/5+ (딜러 이중)",
+      "columnName": "3_5_dealer_both",
+      "condition": "willpower >= 3 && corePoint >= 5 && dealerA > 0 && dealerB > 0"
+    },
+    "3/5_support_both": {
+      "label": "3/5+ (서폿 이중)",
+      "columnName": "3_5_support_both",
+      "condition": "willpower >= 3 && corePoint >= 5 && supportA > 0 && supportB > 0"
+    },
+    "sum8+": {
+      "label": "합 8+",
+      "columnName": "sum8",
+      "condition": "(willpower + corePoint) >= 8"
+    },
+    "sum8+_dealer_both": {
+      "label": "합 8+ (딜러 이중)",
+      "columnName": "sum8_dealer_both",
+      "condition": "(willpower + corePoint) >= 8 && dealerA > 0 && dealerB > 0"
+    },
+    "sum8+_support_both": {
+      "label": "합 8+ (서폿 이중)",
+      "columnName": "sum8_support_both",
+      "condition": "(willpower + corePoint) >= 8 && supportA > 0 && supportB > 0"
+    },
+    "sum9+": {
+      "label": "합 9+",
+      "columnName": "sum9",
+      "condition": "(willpower + corePoint) >= 9"
+    },
+    "sum9+_dealer_both": {
+      "label": "합 9+ (딜러 이중)",
+      "columnName": "sum9_dealer_both",
+      "condition": "(willpower + corePoint) >= 9 && dealerA > 0 && dealerB > 0"
+    },
+    "sum9+_support_both": {
+      "label": "합 9+ (서폿 이중)",
+      "columnName": "sum9_support_both",
+      "condition": "(willpower + corePoint) >= 9 && supportA > 0 && supportB > 0"
+    },
+    "relic+": {
+      "label": "유물+",
+      "columnName": "relic",
+      "condition": "(willpower + corePoint + dealerA + dealerB + supportA + supportB) >= 16"
+    },
+    "relic+_dealer_both": {
+      "label": "유물+ (딜러 이중)",
+      "columnName": "relic_dealer_both",
+      "condition": "(willpower + corePoint + dealerA + dealerB + supportA + supportB) >= 16 && dealerA > 0 && dealerB > 0"
+    },
+    "relic+_support_both": {
+      "label": "유물+ (서폿 이중)",
+      "columnName": "relic_support_both",
+      "condition": "(willpower + corePoint + dealerA + dealerB + supportA + supportB) >= 16 && supportA > 0 && supportB > 0"
+    },
+    "ancient+": {
+      "label": "고대",
+      "columnName": "ancient",
+      "condition": "(willpower + corePoint + dealerA + dealerB + supportA + supportB) >= 19"
+    },
+    "ancient+_dealer_both": {
+      "label": "고대 (딜러 이중)",
+      "columnName": "ancient_dealer_both",
+      "condition": "(willpower + corePoint + dealerA + dealerB + supportA + supportB) >= 19 && dealerA > 0 && dealerB > 0"
+    },
+    "ancient+_support_both": {
+      "label": "고대 (서폿 이중)",
+      "columnName": "ancient_support_both",
+      "condition": "(willpower + corePoint + dealerA + dealerB + supportA + supportB) >= 19 && supportA > 0 && supportB > 0"
+    },
+    "dealer_complete": {
+      "label": "딜러 종결",
+      "columnName": "dealer_complete",
+      "condition": "(willpower + corePoint + dealerA + dealerB) == 20"
+    },
+    "support_complete": {
+      "label": "서폿 종결",
+      "columnName": "support_complete",
+      "condition": "(willpower + corePoint + supportA + supportB) == 20"
+    }
+  }
+}
